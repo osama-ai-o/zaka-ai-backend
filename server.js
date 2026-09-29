@@ -1,4 +1,3 @@
-
 const express = require("express");
 const cors = require("cors");
 
@@ -9,7 +8,7 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 app.get("/", (req, res) => {
   res.json({
@@ -19,9 +18,7 @@ app.get("/", (req, res) => {
 });
 
 app.post("/api/chat", async (req, res) => {
-
   try {
-
     const { message } = req.body;
 
     if (!message) {
@@ -30,25 +27,30 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    if (!OPENAI_API_KEY) {
+    if (!GEMINI_API_KEY) {
       return res.status(500).json({
-        error: "OPENAI_API_KEY غير موجود"
+        error: "GEMINI_API_KEY غير موجود في Render"
       });
     }
 
     const response = await fetch(
-      "https://api.openai.com/v1/responses",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" +
+        GEMINI_API_KEY,
       {
         method: "POST",
-
         headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${OPENAI_API_KEY}`
+          "Content-Type": "application/json"
         },
-
         body: JSON.stringify({
-          model: "gpt-5",
-          input: message
+          contents: [
+            {
+              parts: [
+                {
+                  text: message
+                }
+              ]
+            }
+          ]
         })
       }
     );
@@ -56,15 +58,15 @@ app.post("/api/chat", async (req, res) => {
     const data = await response.json();
 
     if (!response.ok) {
-
       return res.status(response.status).json({
-        error: data.error?.message || "حدث خطأ من OpenAI"
+        error:
+          data.error?.message ||
+          "حدث خطأ من Gemini"
       });
-
     }
 
     const answer =
-      data.output_text ||
+      data.candidates?.[0]?.content?.parts?.[0]?.text ||
       "لم يتم الحصول على رد.";
 
     res.json({
@@ -72,21 +74,14 @@ app.post("/api/chat", async (req, res) => {
     });
 
   } catch (error) {
-
     console.error(error);
 
     res.status(500).json({
       error: "حدث خطأ في الخادم"
     });
-
   }
-
 });
 
 app.listen(PORT, () => {
-
-  console.log(
-    `ZAKA AI Backend يعمل على المنفذ ${PORT}`
-  );
-
+  console.log(`ZAKA AI Backend يعمل على المنفذ ${PORT}`);
 });
