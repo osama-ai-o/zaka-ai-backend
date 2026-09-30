@@ -8,194 +8,370 @@ app.use(express.json({ limit: "2mb" }));
 
 const PORT = process.env.PORT || 3000;
 
-// ================================
+// ======================================
 // API KEYS
-// ================================
+// ======================================
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const PIXAZO_API_KEY = process.env.PIXAZO_API_KEY;
+const GEMINI_API_KEY =
+  process.env.GEMINI_API_KEY;
 
-const DEFAULT_MODEL = "gemini-3.8-flash";
+const OPENROUTER_API_KEY =
+  process.env.OPENROUTER_API_KEY;
 
-// ================================
-// HOME
-// ================================
+const PIXAZO_API_KEY =
+  process.env.PIXAZO_API_KEY;
+
+const ELEVENLABS_API_KEY =
+  process.env.ELEVENLABS_API_KEY;
+
+
+// ======================================
+// DEFAULT MODEL
+// ======================================
+
+const DEFAULT_MODEL =
+  "gemini-3.8-flash";
+
+
+// ======================================
+// الصفحة الرئيسية
+// ======================================
 
 app.get("/", (req, res) => {
+
   res.json({
+
     status: "online",
+
     name: "ZAKA AI",
-    message: "ZAKA AI Backend يعمل بنجاح 🚀"
+
+    message:
+      "ZAKA AI Backend يعمل بنجاح 🚀"
+
   });
+
 });
 
-// ================================
+
+// ======================================
 // CHAT
-// ================================
+// ======================================
 
 app.post("/api/chat", async (req, res) => {
+
   try {
 
-    const { message, provider, model } = req.body;
+    const {
+      message,
+      provider,
+      model
+    } = req.body;
 
-    if (!message || !message.trim()) {
+
+    if (
+      !message ||
+      !message.trim()
+    ) {
+
       return res.status(400).json({
-        error: "الرسالة فارغة"
+
+        error:
+          "الرسالة فارغة"
+
       });
+
     }
+
 
     // ==================================
     // GEMINI
     // ==================================
 
-    if (!provider || provider === "gemini") {
+    if (
+      !provider ||
+      provider === "gemini"
+    ) {
 
       if (!GEMINI_API_KEY) {
+
         return res.status(500).json({
-          error: "GEMINI_API_KEY غير موجود في Render"
+
+          error:
+            "GEMINI_API_KEY غير موجود في Render"
+
         });
+
       }
 
-      const selectedModel = model || DEFAULT_MODEL;
+
+      const selectedModel =
+        model ||
+        DEFAULT_MODEL;
+
 
       const url =
         `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent`;
 
-      const response = await fetch(url, {
-        method: "POST",
 
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": GEMINI_API_KEY
-        },
+      const response =
+        await fetch(
+          url,
+          {
 
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [
-                {
-                  text: message
-                }
-              ]
-            }
-          ]
-        })
-      });
+            method: "POST",
 
-      const data = await response.json();
+            headers: {
+
+              "Content-Type":
+                "application/json",
+
+              "x-goog-api-key":
+                GEMINI_API_KEY
+
+            },
+
+            body:
+              JSON.stringify({
+
+                contents: [
+
+                  {
+
+                    role: "user",
+
+                    parts: [
+
+                      {
+
+                        text:
+                          message
+
+                      }
+
+                    ]
+
+                  }
+
+                ]
+
+              })
+
+          }
+        );
+
+
+      const data =
+        await response.json();
+
 
       if (!response.ok) {
 
-        console.error("Gemini:", data);
+        console.error(
+          "Gemini:",
+          data
+        );
 
-        return res.status(response.status).json({
+
+        return res.status(
+          response.status
+        ).json({
+
           error:
             data?.error?.message ||
             "Gemini API Error"
+
         });
+
       }
 
+
       const answer =
-        data?.candidates?.[0]?.content?.parts
-          ?.map(part => part.text || "")
+        data
+          ?.candidates?.[0]
+          ?.content?.parts
+          ?.map(
+            part =>
+              part.text || ""
+          )
           .join("")
           .trim();
 
+
       if (!answer) {
+
         return res.status(502).json({
-          error: "Gemini لم يرجع نصًا"
+
+          error:
+            "Gemini لم يرجع نصًا"
+
         });
+
       }
 
+
       return res.json({
+
         answer,
-        provider: "gemini",
-        model: selectedModel
+
+        provider:
+          "gemini",
+
+        model:
+          selectedModel
+
       });
+
     }
+
 
     // ==================================
     // OPENROUTER
     // ==================================
 
-    if (provider === "openrouter") {
+    if (
+      provider ===
+      "openrouter"
+    ) {
 
       if (!OPENROUTER_API_KEY) {
+
         return res.status(500).json({
-          error: "OPENROUTER_API_KEY غير موجود في Render"
+
+          error:
+            "OPENROUTER_API_KEY غير موجود في Render"
+
         });
+
       }
 
-      const selectedModel = model || "openrouter/free";
 
-      const response = await fetch(
-        "https://openrouter.ai/api/v1/chat/completions",
-        {
-          method: "POST",
+      const selectedModel =
+        model ||
+        "openrouter/free";
 
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-            "HTTP-Referer": "https://zaka-ai-backend-1.onrender.com",
-            "X-Title": "ZAKA AI"
-          },
 
-          body: JSON.stringify({
-            model: selectedModel,
+      const response =
+        await fetch(
 
-            messages: [
-              {
-                role: "user",
-                content: message
-              }
-            ]
-          })
-        }
-      );
+          "https://openrouter.ai/api/v1/chat/completions",
 
-      const data = await response.json();
+          {
+
+            method: "POST",
+
+            headers: {
+
+              "Content-Type":
+                "application/json",
+
+              "Authorization":
+                `Bearer ${OPENROUTER_API_KEY}`,
+
+              "HTTP-Referer":
+                "https://zaka-ai-backend-1.onrender.com",
+
+              "X-Title":
+                "ZAKA AI"
+
+            },
+
+            body:
+              JSON.stringify({
+
+                model:
+                  selectedModel,
+
+                messages: [
+
+                  {
+
+                    role:
+                      "user",
+
+                    content:
+                      message
+
+                  }
+
+                ]
+
+              })
+
+          }
+
+        );
+
+
+      const data =
+        await response.json();
+
 
       console.log(
+
         "OpenRouter:",
+
         response.status,
+
         JSON.stringify(data)
+
       );
+
 
       if (!response.ok) {
 
-        return res.status(response.status).json({
+        return res.status(
+          response.status
+        ).json({
+
           error:
             data?.error?.message ||
             `OpenRouter HTTP ${response.status}`
+
         });
+
       }
 
+
       const answer =
-        data?.choices?.[0]?.message?.content;
+        data
+          ?.choices?.[0]
+          ?.message?.content;
+
 
       if (!answer) {
 
         return res.status(502).json({
-          error: "OpenRouter لم يرجع نصًا"
+
+          error:
+            "OpenRouter لم يرجع نصًا"
+
         });
+
       }
 
+
       return res.json({
+
         answer,
-        provider: "openrouter",
-        model: selectedModel
+
+        provider:
+          "openrouter",
+
+        model:
+          selectedModel
+
       });
+
     }
 
-    // ==================================
-    // UNKNOWN PROVIDER
-    // ==================================
 
     return res.status(400).json({
-      error: "مزود الذكاء الاصطناعي غير معروف"
+
+      error:
+        "مزود الذكاء الاصطناعي غير معروف"
+
     });
+
 
   } catch (error) {
 
@@ -204,17 +380,23 @@ app.post("/api/chat", async (req, res) => {
       error
     );
 
+
     return res.status(500).json({
+
       error:
         error?.message ||
         "خطأ داخلي في الخادم"
+
     });
+
   }
+
 });
 
-// ================================
-// IMAGE GENERATION - PIXAZO
-// ================================
+
+// ======================================
+// IMAGE - PIXAZO
+// ======================================
 
 app.post("/api/image", async (req, res) => {
 
@@ -227,10 +409,16 @@ app.post("/api/image", async (req, res) => {
     } = req.body;
 
 
-    if (!prompt || !prompt.trim()) {
+    if (
+      !prompt ||
+      !prompt.trim()
+    ) {
 
       return res.status(400).json({
-        error: "وصف الصورة فارغ"
+
+        error:
+          "وصف الصورة فارغ"
+
       });
 
     }
@@ -239,18 +427,17 @@ app.post("/api/image", async (req, res) => {
     if (!PIXAZO_API_KEY) {
 
       return res.status(500).json({
+
         error:
           "PIXAZO_API_KEY غير موجود في Render"
+
       });
 
     }
 
 
-    // =================================
-    // تحديد الحجم
-    // =================================
-
     let imageWidth = 512;
+
     let imageHeight = 512;
 
 
@@ -268,37 +455,42 @@ app.post("/api/image", async (req, res) => {
     }
 
 
-    // حماية من الأحجام غير المسموحة
     const allowedSizes = [
+
       [512, 512],
+
       [512, 896],
+
       [896, 512]
+
     ];
 
 
     const validSize =
       allowedSizes.some(
+
         ([w, h]) =>
+
           w === imageWidth &&
           h === imageHeight
+
       );
 
 
     if (!validSize) {
 
       imageWidth = 512;
+
       imageHeight = 512;
 
     }
 
 
-    // =================================
-    // Pixazo
-    // =================================
-
     const response =
       await fetch(
+
         "https://gateway.pixazo.ai/flux-1-schnell/v1/getData",
+
         {
 
           method: "POST",
@@ -316,39 +508,43 @@ app.post("/api/image", async (req, res) => {
 
           },
 
-          body: JSON.stringify({
+          body:
+            JSON.stringify({
 
-            prompt:
-              prompt.trim(),
+              prompt:
+                prompt.trim(),
 
-            num_steps:
-              4,
+              num_steps:
+                4,
 
-            seed:
-              15,
+              seed:
+                15,
 
-            width:
-              imageWidth,
+              width:
+                imageWidth,
 
-            height:
-              imageHeight
+              height:
+                imageHeight
 
-          })
+            })
 
         }
+
       );
 
 
-    // نقرأ كنص أولًا
-    // حتى لا يتكرر خطأ JSON
     const text =
       await response.text();
 
 
     console.log(
+
       "Pixazo:",
+
       response.status,
+
       text
+
     );
 
 
@@ -375,10 +571,6 @@ app.post("/api/image", async (req, res) => {
     }
 
 
-    // =================================
-    // خطأ Pixazo
-    // =================================
-
     if (!response.ok) {
 
       return res.status(
@@ -394,10 +586,6 @@ app.post("/api/image", async (req, res) => {
 
     }
 
-
-    // =================================
-    // رابط الصورة
-    // =================================
 
     const imageUrl =
       data?.output;
@@ -418,17 +606,12 @@ app.post("/api/image", async (req, res) => {
     }
 
 
-    // =================================
-    // النجاح
-    // =================================
-
     return res.json({
 
       success:
         true,
 
-      imageUrl:
-        imageUrl,
+      imageUrl,
 
       provider:
         "pixazo",
@@ -445,8 +628,11 @@ app.post("/api/image", async (req, res) => {
   } catch (error) {
 
     console.error(
+
       "PIXAZO ERROR:",
+
       error
+
     );
 
 
@@ -461,14 +647,184 @@ app.post("/api/image", async (req, res) => {
   }
 
 });
-// ================================
-// START SERVER
-// ================================
 
-app.listen(PORT, () => {
 
-  console.log(
-    `ZAKA AI Backend يعمل على المنفذ ${PORT}`
-  );
+// ======================================
+// VOICE - ELEVENLABS
+// ======================================
+
+app.post("/api/voice", async (req, res) => {
+
+  try {
+
+    const {
+      text
+    } = req.body;
+
+
+    if (
+      !text ||
+      !text.trim()
+    ) {
+
+      return res.status(400).json({
+
+        error:
+          "النص فارغ"
+
+      });
+
+    }
+
+
+    if (!ELEVENLABS_API_KEY) {
+
+      return res.status(500).json({
+
+        error:
+          "ELEVENLABS_API_KEY غير موجود في Render"
+
+      });
+
+    }
+
+
+    const voiceId =
+      "EXAVITQu4vr4xnSDxMaL";
+
+
+    const response =
+      await fetch(
+
+        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+
+        {
+
+          method: "POST",
+
+          headers: {
+
+            "Content-Type":
+              "application/json",
+
+            "xi-api-key":
+              ELEVENLABS_API_KEY
+
+          },
+
+          body:
+            JSON.stringify({
+
+              text:
+                text.trim(),
+
+              model_id:
+                "eleven_multilingual_v2"
+
+            })
+
+        }
+
+      );
+
+
+    if (!response.ok) {
+
+      const errorText =
+        await response.text();
+
+
+      console.error(
+
+        "ElevenLabs:",
+
+        response.status,
+
+        errorText
+
+      );
+
+
+      return res.status(
+        response.status
+      ).json({
+
+        error:
+          "فشل إنشاء الصوت من ElevenLabs"
+
+      });
+
+    }
+
+
+    const audioBuffer =
+      Buffer.from(
+
+        await response.arrayBuffer()
+
+      );
+
+
+    res.setHeader(
+
+      "Content-Type",
+
+      "audio/mpeg"
+
+    );
+
+
+    res.setHeader(
+
+      "Content-Length",
+
+      audioBuffer.length
+
+    );
+
+
+    res.send(
+      audioBuffer
+    );
+
+
+  } catch (error) {
+
+    console.error(
+
+      "VOICE ERROR:",
+
+      error
+
+    );
+
+
+    return res.status(500).json({
+
+      error:
+        error?.message ||
+        "حدث خطأ أثناء إنشاء الصوت"
+
+    });
+
+  }
 
 });
+
+
+// ======================================
+// تشغيل السيرفر
+// ======================================
+
+app.listen(
+  PORT,
+  () => {
+
+    console.log(
+
+      `ZAKA AI Backend يعمل على المنفذ ${PORT}`
+
+    );
+
+  }
+);
