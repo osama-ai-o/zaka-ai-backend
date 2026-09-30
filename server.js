@@ -8,10 +8,19 @@ app.use(express.json({ limit: "2mb" }));
 
 const PORT = process.env.PORT || 3000;
 
+// ================================
+// API KEYS
+// ================================
+
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const PIXAZO_API_KEY = process.env.PIXAZO_API_KEY;
 
 const DEFAULT_MODEL = "gemini-3.8-flash";
+
+// ================================
+// HOME
+// ================================
 
 app.get("/", (req, res) => {
   res.json({
@@ -21,9 +30,11 @@ app.get("/", (req, res) => {
   });
 });
 
+// ================================
+// CHAT
+// ================================
 
 app.post("/api/chat", async (req, res) => {
-
   try {
 
     const { message, provider, model } = req.body;
@@ -33,7 +44,6 @@ app.post("/api/chat", async (req, res) => {
         error: "الرسالة فارغة"
       });
     }
-
 
     // ==================================
     // GEMINI
@@ -105,7 +115,6 @@ app.post("/api/chat", async (req, res) => {
         model: selectedModel
       });
     }
-
 
     // ==================================
     // OPENROUTER
@@ -180,11 +189,13 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
+    // ==================================
+    // UNKNOWN PROVIDER
+    // ==================================
 
     return res.status(400).json({
       error: "مزود الذكاء الاصطناعي غير معروف"
     });
-
 
   } catch (error) {
 
@@ -198,11 +209,109 @@ app.post("/api/chat", async (req, res) => {
         error?.message ||
         "خطأ داخلي في الخادم"
     });
-
   }
-
 });
 
+// ================================
+// IMAGE GENERATION - PIXAZO
+// ================================
+
+app.post("/api/image", async (req, res) => {
+
+  try {
+
+    const { prompt } = req.body;
+
+    if (!prompt || !prompt.trim()) {
+      return res.status(400).json({
+        error: "وصف الصورة فارغ"
+      });
+    }
+
+    if (!PIXAZO_API_KEY) {
+      return res.status(500).json({
+        error: "PIXAZO_API_KEY غير موجود في Render"
+      });
+    }
+
+    const response = await fetch(
+      "https://gateway.pixazo.ai/flux/text-to-image",
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json",
+          "Ocp-Apim-Subscription-Key": PIXAZO_API_KEY
+        },
+
+        body: JSON.stringify({
+          prompt: prompt.trim()
+        })
+      }
+    );
+
+    const data = await response.json();
+
+    console.log(
+      "Pixazo:",
+      response.status,
+      JSON.stringify(data)
+    );
+
+    if (!response.ok) {
+
+      return res.status(response.status).json({
+        error:
+          data?.error?.message ||
+          data?.message ||
+          `Pixazo HTTP ${response.status}`
+      });
+    }
+
+    // Pixazo يعيد رابط الصورة في output
+    const imageUrl =
+      data?.output ||
+      data?.image_url ||
+      data?.url ||
+      data?.data?.output ||
+      data?.data?.image_url;
+
+    if (!imageUrl) {
+
+      console.error(
+        "Pixazo لم يرجع رابط صورة:",
+        data
+      );
+
+      return res.status(502).json({
+        error: "Pixazo لم يرجع رابط الصورة"
+      });
+    }
+
+    return res.json({
+      success: true,
+      imageUrl: imageUrl,
+      provider: "pixazo"
+    });
+
+  } catch (error) {
+
+    console.error(
+      "PIXAZO ERROR:",
+      error
+    );
+
+    return res.status(500).json({
+      error:
+        error?.message ||
+        "حدث خطأ أثناء إنشاء الصورة"
+    });
+  }
+});
+
+// ================================
+// START SERVER
+// ================================
 
 app.listen(PORT, () => {
 
