@@ -220,42 +220,130 @@ app.post("/api/image", async (req, res) => {
 
   try {
 
-    const { prompt } = req.body;
+    const {
+      prompt,
+      width,
+      height
+    } = req.body;
+
 
     if (!prompt || !prompt.trim()) {
+
       return res.status(400).json({
         error: "وصف الصورة فارغ"
       });
+
     }
+
 
     if (!PIXAZO_API_KEY) {
+
       return res.status(500).json({
-        error: "PIXAZO_API_KEY غير موجود في Render"
+        error:
+          "PIXAZO_API_KEY غير موجود في Render"
       });
+
     }
 
-    const response = await fetch(
-      "https://gateway.pixazo.ai/flux-1-schnell/v1/getData",
-      {
-        method: "POST",
 
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-cache",
-          "Ocp-Apim-Subscription-Key": PIXAZO_API_KEY
-        },
+    // =================================
+    // تحديد الحجم
+    // =================================
 
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          num_steps: 4,
-          seed: 15,
-          height: 512,
-          width: 512
-        })
-      }
-    );
+    let imageWidth = 512;
+    let imageHeight = 512;
 
-    const text = await response.text();
+
+    if (
+      Number(width) &&
+      Number(height)
+    ) {
+
+      imageWidth =
+        Number(width);
+
+      imageHeight =
+        Number(height);
+
+    }
+
+
+    // حماية من الأحجام غير المسموحة
+    const allowedSizes = [
+      [512, 512],
+      [512, 896],
+      [896, 512]
+    ];
+
+
+    const validSize =
+      allowedSizes.some(
+        ([w, h]) =>
+          w === imageWidth &&
+          h === imageHeight
+      );
+
+
+    if (!validSize) {
+
+      imageWidth = 512;
+      imageHeight = 512;
+
+    }
+
+
+    // =================================
+    // Pixazo
+    // =================================
+
+    const response =
+      await fetch(
+        "https://gateway.pixazo.ai/flux-1-schnell/v1/getData",
+        {
+
+          method: "POST",
+
+          headers: {
+
+            "Content-Type":
+              "application/json",
+
+            "Cache-Control":
+              "no-cache",
+
+            "Ocp-Apim-Subscription-Key":
+              PIXAZO_API_KEY
+
+          },
+
+          body: JSON.stringify({
+
+            prompt:
+              prompt.trim(),
+
+            num_steps:
+              4,
+
+            seed:
+              15,
+
+            width:
+              imageWidth,
+
+            height:
+              imageHeight
+
+          })
+
+        }
+      );
+
+
+    // نقرأ كنص أولًا
+    // حتى لا يتكرر خطأ JSON
+    const text =
+      await response.text();
+
 
     console.log(
       "Pixazo:",
@@ -263,39 +351,96 @@ app.post("/api/image", async (req, res) => {
       text
     );
 
+
     let data;
 
+
     try {
-      data = JSON.parse(text);
+
+      data =
+        JSON.parse(text);
+
     } catch {
-      return res.status(response.status).json({
-        error: text || `Pixazo HTTP ${response.status}`
+
+      return res.status(
+        response.status
+      ).json({
+
+        error:
+          text ||
+          `Pixazo HTTP ${response.status}`
+
       });
+
     }
 
+
+    // =================================
+    // خطأ Pixazo
+    // =================================
+
     if (!response.ok) {
-      return res.status(response.status).json({
+
+      return res.status(
+        response.status
+      ).json({
+
         error:
           data?.message ||
           data?.error ||
           `Pixazo HTTP ${response.status}`
+
       });
+
     }
 
-    const imageUrl = data?.output;
+
+    // =================================
+    // رابط الصورة
+    // =================================
+
+    const imageUrl =
+      data?.output;
+
 
     if (!imageUrl) {
+
       return res.status(502).json({
-        error: "Pixazo لم يرجع رابط الصورة",
-        pixazo: data
+
+        error:
+          "Pixazo لم يرجع رابط الصورة",
+
+        pixazo:
+          data
+
       });
+
     }
 
+
+    // =================================
+    // النجاح
+    // =================================
+
     return res.json({
-      success: true,
-      imageUrl: imageUrl,
-      provider: "pixazo"
+
+      success:
+        true,
+
+      imageUrl:
+        imageUrl,
+
+      provider:
+        "pixazo",
+
+      width:
+        imageWidth,
+
+      height:
+        imageHeight
+
     });
+
 
   } catch (error) {
 
@@ -304,11 +449,15 @@ app.post("/api/image", async (req, res) => {
       error
     );
 
+
     return res.status(500).json({
+
       error:
         error?.message ||
         "حدث خطأ أثناء إنشاء الصورة"
+
     });
+
   }
 
 });
