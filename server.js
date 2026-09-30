@@ -17,13 +17,13 @@ const PIXAZO_API_KEY = process.env.PIXAZO_API_KEY;
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 
 /* =========================================================
-   MODELS
+   MODELS (تم تثبيت النماذج الصحيحة لتجاهل أخطاء الواجهة)
 ========================================================= */
-const DEFAULT_GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
-const DEFAULT_OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free";
+const DEFAULT_GEMINI_MODEL = "gemini-1.5-flash";
+const DEFAULT_OPENROUTER_MODEL = "google/gemini-2.0-flash-lite-001:free";
 
 /* =========================================================
-   HOME
+   HOME & HEALTH
 ========================================================= */
 app.get("/", (req, res) => {
   res.json({
@@ -33,9 +33,6 @@ app.get("/", (req, res) => {
   });
 });
 
-/* =========================================================
-   HEALTH
-========================================================= */
 app.get("/api/health", (req, res) => {
   res.json({
     status: "online",
@@ -49,10 +46,13 @@ app.get("/api/health", (req, res) => {
 /* =========================================================
    HELPER FUNCTIONS (AI PROVIDERS)
 ========================================================= */
-async function fetchGemini(conversation, model) {
+async function fetchGemini(conversation, requestedModel) {
   if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY غير موجود في البيئة");
 
-  const selectedModel = model && model !== "gemini" ? model : DEFAULT_GEMINI_MODEL;
+  // إجبار الكود على استخدام النماذج المدعومة فقط وتجاهل gemini-3.8-flash أو أي اسم خاطئ
+  const validModels = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"];
+  const selectedModel = validModels.includes(requestedModel) ? requestedModel : DEFAULT_GEMINI_MODEL;
+
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent`;
 
   const response = await fetch(url, {
@@ -80,10 +80,13 @@ async function fetchGemini(conversation, model) {
   return { answer, model: selectedModel };
 }
 
-async function fetchOpenRouter(conversation, model) {
+async function fetchOpenRouter(conversation, requestedModel) {
   if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY غير موجود في البيئة");
 
-  const selectedModel = model && model !== "openrouter" ? model : DEFAULT_OPENROUTER_MODEL;
+  // التأكد من استخدام نموذج مجاني يعمل دائماً
+  const selectedModel = (requestedModel && requestedModel.endsWith(":free") && requestedModel !== "openrouter/free") 
+    ? requestedModel 
+    : DEFAULT_OPENROUTER_MODEL;
 
   const openRouterMessages = conversation.map(item => ({
     role: item.role === "model" ? "assistant" : "user",
@@ -95,7 +98,7 @@ async function fetchOpenRouter(conversation, model) {
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-      "HTTP-Referer": "https://zaka-ai-backend-1.onrender.com",
+      "HTTP-Referer": "https://zaka-ai-backend-1.onrender.com", 
       "X-Title": "ZAKA AI"
     },
     body: JSON.stringify({
@@ -117,14 +120,14 @@ async function fetchOpenRouter(conversation, model) {
 }
 
 /* =========================================================
-   CHAT
+   CHAT API
 ========================================================= */
 app.post("/api/chat", async (req, res) => {
   try {
     const { message, messages, provider, model } = req.body;
-
     let conversation = [];
 
+    // تنسيق الرسائل
     if (Array.isArray(messages) && messages.length > 0) {
       conversation = messages
         .filter(item => item && item.content)
@@ -132,47 +135,30 @@ app.post("/api/chat", async (req, res) => {
           role: item.role === "assistant" ? "model" : "user",
           parts: [{ text: String(item.content) }]
         }));
-    }
-
-    if (conversation.length === 0 && typeof message === "string" && message.trim()) {
-      conversation = [
-        {
-          role: "user",
-          parts: [{ text: message.trim() }]
-        }
-      ];
+    } else if (typeof message === "string" && message.trim()) {
+      conversation = [{ role: "user", parts: [{ text: message.trim() }] }];
     }
 
     if (conversation.length === 0) {
       return res.status(400).json({ error: "الرسالة فارغة" });
     }
 
-    // 1. طلب صريح لـ OpenRouter
+    // 1. إذا تم طلب OpenRouter صراحة
     if (provider === "openrouter") {
       try {
         const result = await fetchOpenRouter(conversation, model);
-        return res.json({
-          reply: result.answer,
-          answer: result.answer,
-          provider: "openrouter",
-          model: result.model
-        });
+        return res.json({ reply: result.answer, answer: result.answer, provider: "openrouter", model: result.model });
       } catch (err) {
         return res.status(500).json({ error: err.message });
       }
     }
 
-    // 2. طلب Gemini الافتراضي مع التحويل التلقائي (Fallback) إلى OpenRouter عند الفشل
+    // 2. الطلب الافتراضي لـ Gemini مع التحويل التلقائي لـ OpenRouter
     try {
       const result = await fetchGemini(conversation, model);
-      return res.json({
-        reply: result.answer,
-        answer: result.answer,
-        provider: "gemini",
-        model: result.model
-      });
+      return res.json({ reply: result.answer, answer: result.answer, provider: "gemini", model: result.model });
     } catch (geminiErr) {
-      console.warn("فشل Gemini، يتم التحويل التلقائي لـ OpenRouter:", geminiErr.message);
+      console.warn("فشل Gemini (نفاد الحصة)، يتم التحويل إلى OpenRouter تلقائياً:", geminiErr.message);
 
       if (OPENROUTER_API_KEY) {
         try {
@@ -186,16 +172,12 @@ app.post("/api/chat", async (req, res) => {
           });
         } catch (openRouterErr) {
           return res.status(geminiErr.status || 500).json({
-            error: `Gemini: ${geminiErr.message} | OpenRouter: ${openRouterErr.message}`,
-            details: geminiErr.details || null
+            error: `Gemini فشل بسبب: ${geminiErr.message} | OpenRouter فشل بسبب: ${openRouterErr.message}`
           });
         }
       }
 
-      return res.status(geminiErr.status || 500).json({
-        error: geminiErr.message,
-        details: geminiErr.details || null
-      });
+      return res.status(geminiErr.status || 500).json({ error: geminiErr.message, details: geminiErr.details || null });
     }
 
   } catch (error) {
@@ -205,137 +187,71 @@ app.post("/api/chat", async (req, res) => {
 });
 
 /* =========================================================
-   IMAGE - PIXAZO
+   IMAGE & VOICE
 ========================================================= */
 app.post("/api/image", async (req, res) => {
   try {
     const { prompt, width, height, model } = req.body;
-
-    if (!prompt || !prompt.trim()) {
-      return res.status(400).json({ error: "وصف الصورة فارغ" });
-    }
-
-    if (!PIXAZO_API_KEY) {
-      return res.status(500).json({ error: "PIXAZO_API_KEY غير موجود في Render" });
-    }
+    if (!prompt || !prompt.trim()) return res.status(400).json({ error: "وصف الصورة فارغ" });
+    if (!PIXAZO_API_KEY) return res.status(500).json({ error: "PIXAZO_API_KEY غير موجود في Render" });
 
     const selectedModel = model || "flux";
 
     if (selectedModel === "flux") {
-      let imageWidth = Number(width) || 512;
-      let imageHeight = Number(height) || 512;
-
-      const allowedSizes = [
-        [512, 512],
-        [512, 896],
-        [896, 512]
-      ];
-
-      const validSize = allowedSizes.some(([w, h]) => w === imageWidth && h === imageHeight);
-      if (!validSize) {
-        imageWidth = 512;
-        imageHeight = 512;
-      }
+      let imageWidth = Number(width) || 512, imageHeight = Number(height) || 512;
+      const validSize = [[512, 512], [512, 896], [896, 512]].some(([w, h]) => w === imageWidth && h === imageHeight);
+      if (!validSize) { imageWidth = 512; imageHeight = 512; }
 
       const response = await fetch("https://gateway.pixazo.ai/flux-1-schnell/v1/getData", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-cache",
-          "Ocp-Apim-Subscription-Key": PIXAZO_API_KEY
-        },
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          num_steps: 4,
-          seed: 15,
-          width: imageWidth,
-          height: imageHeight
-        })
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "Ocp-Apim-Subscription-Key": PIXAZO_API_KEY },
+        body: JSON.stringify({ prompt: prompt.trim(), num_steps: 4, seed: 15, width: imageWidth, height: imageHeight })
       });
 
       const text = await response.text();
       let data;
-      try { data = JSON.parse(text); } catch {
-        return res.status(response.status).json({ error: text || `Pixazo Flux HTTP ${response.status}` });
-      }
+      try { data = JSON.parse(text); } catch { return res.status(response.status).json({ error: `Pixazo Flux HTTP ${response.status}` }); }
 
-      if (!response.ok) {
-        return res.status(response.status).json({ error: data?.message || data?.error || `Pixazo Flux HTTP ${response.status}` });
-      }
+      if (!response.ok) return res.status(response.status).json({ error: data?.message || data?.error || `Pixazo Flux HTTP ${response.status}` });
+      if (!data?.output) return res.status(502).json({ error: "لم يرجع رابط الصورة" });
 
-      const imageUrl = data?.output;
-      if (!imageUrl) {
-        return res.status(502).json({ error: "Pixazo Flux لم يرجع رابط الصورة", pixazo: data });
-      }
-
-      return res.json({ success: true, imageUrl, provider: "pixazo", model: "flux", width: imageWidth, height: imageHeight });
+      return res.json({ success: true, imageUrl: data.output, provider: "pixazo", model: "flux", width: imageWidth, height: imageHeight });
     }
 
     if (selectedModel === "sdxl") {
-      let imageWidth = Number(width) || 1024;
-      let imageHeight = Number(height) || 1024;
-
+      let imageWidth = Number(width) || 1024, imageHeight = Number(height) || 1024;
       if (imageWidth < 256 || imageWidth > 2048) imageWidth = 1024;
       if (imageHeight < 256 || imageHeight > 2048) imageHeight = 1024;
 
       const response = await fetch("https://gateway.pixazo.ai/getImage/v1/getSDXLImage", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-cache",
-          "Ocp-Apim-Subscription-Key": PIXAZO_API_KEY
-        },
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          negative_prompt: "blurry, low quality, distorted, watermark",
-          height: imageHeight,
-          width: imageWidth,
-          num_steps: 20,
-          guidance_scale: 5,
-          seed: Math.floor(Math.random() * 1000000000)
-        })
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "Ocp-Apim-Subscription-Key": PIXAZO_API_KEY },
+        body: JSON.stringify({ prompt: prompt.trim(), negative_prompt: "blurry, low quality, distorted, watermark", height: imageHeight, width: imageWidth, num_steps: 20, guidance_scale: 5, seed: Math.floor(Math.random() * 1000000000) })
       });
 
       const text = await response.text();
       let data;
-      try { data = JSON.parse(text); } catch {
-        return res.status(response.status).json({ error: text || `Pixazo SDXL HTTP ${response.status}` });
-      }
+      try { data = JSON.parse(text); } catch { return res.status(response.status).json({ error: `Pixazo SDXL HTTP ${response.status}` }); }
 
-      if (!response.ok) {
-        return res.status(response.status).json({ error: data?.message || data?.error || `Pixazo SDXL HTTP ${response.status}` });
-      }
-
+      if (!response.ok) return res.status(response.status).json({ error: data?.message || data?.error || `Pixazo SDXL HTTP ${response.status}` });
+      
       const imageUrl = data?.imageUrl || data?.output;
-      if (!imageUrl) {
-        return res.status(502).json({ error: "Pixazo SDXL لم يرجع رابط الصورة", pixazo: data });
-      }
+      if (!imageUrl) return res.status(502).json({ error: "لم يرجع رابط الصورة" });
 
       return res.json({ success: true, imageUrl, provider: "pixazo", model: "sdxl", width: imageWidth, height: imageHeight });
     }
-
     return res.status(400).json({ error: "نموذج الصورة غير معروف. استخدم flux أو sdxl." });
-
   } catch (error) {
     console.error("PIXAZO ERROR:", error);
     return res.status(500).json({ error: error?.message || "حدث خطأ أثناء إنشاء الصورة" });
   }
 });
 
-/* =========================================================
-   VOICE - ELEVENLABS
-========================================================= */
 app.post("/api/voice", async (req, res) => {
   try {
     const { text } = req.body;
-
-    if (!text || !text.trim()) {
-      return res.status(400).json({ error: "النص فارغ" });
-    }
-
-    if (!ELEVENLABS_API_KEY) {
-      return res.status(500).json({ error: "ELEVENLABS_API_KEY غير موجود في Render" });
-    }
+    if (!text || !text.trim()) return res.status(400).json({ error: "النص فارغ" });
+    if (!ELEVENLABS_API_KEY) return res.status(500).json({ error: "ELEVENLABS_API_KEY غير موجود في Render" });
 
     const voiceId = "JBFqnCBsd6RMkjVDRZzb";
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`;
@@ -354,10 +270,7 @@ app.post("/api/voice", async (req, res) => {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("ElevenLabs:", response.status, errorText);
-      return res.status(response.status).json({
-        error: `ElevenLabs HTTP ${response.status}: ${errorText}`
-      });
+      return res.status(response.status).json({ error: `ElevenLabs HTTP ${response.status}: ${errorText}` });
     }
 
     const audioBuffer = Buffer.from(await response.arrayBuffer());
@@ -374,9 +287,6 @@ app.post("/api/voice", async (req, res) => {
   }
 });
 
-/* =========================================================
-   VOICE STATUS
-========================================================= */
 app.get("/api/voice-status", (req, res) => {
   res.json({
     voice: "ElevenLabs",
@@ -391,4 +301,3 @@ app.get("/api/voice-status", (req, res) => {
 app.listen(PORT, () => {
   console.log(`ZAKA AI Backend يعمل على المنفذ ${PORT}`);
 });
-
