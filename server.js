@@ -17,10 +17,21 @@ const PIXAZO_API_KEY = process.env.PIXAZO_API_KEY;
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 
 /* =========================================================
-   MODELS (تم تثبيت النماذج الصحيحة لتجاهل أخطاء الواجهة)
+   SUPPORTED MODELS (القوائم الشاملة للنماذج)
 ========================================================= */
-const DEFAULT_GEMINI_MODEL = "gemini-1.5-flash";
-const DEFAULT_OPENROUTER_MODEL = "google/gemini-2.0-flash-lite-001:free";
+// جميع نماذج Gemini المدعومة عبر Google API مباشرة
+const VALID_GEMINI_MODELS = [
+  "gemini-1.5-flash-latest",
+  "gemini-1.5-flash",
+  "gemini-1.5-pro-latest",
+  "gemini-1.5-pro",
+  "gemini-2.0-flash-exp",
+  "gemini-1.0-pro"
+];
+
+// النماذج الافتراضية المضمونة
+const DEFAULT_GEMINI_MODEL = "gemini-1.5-flash-latest"; // نموذج سريع ومضمون
+const DEFAULT_OPENROUTER_MODEL = "google/gemini-2.0-flash-exp:free"; // نموذج مجاني فعال حالياً على OpenRouter
 
 /* =========================================================
    HOME & HEALTH
@@ -29,7 +40,7 @@ app.get("/", (req, res) => {
   res.json({
     status: "online",
     name: "ZAKA AI",
-    message: "ZAKA AI Backend يعمل بنجاح 🚀"
+    message: "ZAKA AI Backend يعمل بنجاح 🚀 (تم دمج جميع نماذج Gemini)"
   });
 });
 
@@ -39,7 +50,8 @@ app.get("/api/health", (req, res) => {
     gemini: Boolean(GEMINI_API_KEY),
     openrouter: Boolean(OPENROUTER_API_KEY),
     pixazo: Boolean(PIXAZO_API_KEY),
-    elevenlabs: Boolean(ELEVENLABS_API_KEY)
+    elevenlabs: Boolean(ELEVENLABS_API_KEY),
+    models_supported: VALID_GEMINI_MODELS
   });
 });
 
@@ -49,9 +61,13 @@ app.get("/api/health", (req, res) => {
 async function fetchGemini(conversation, requestedModel) {
   if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY غير موجود في البيئة");
 
-  // إجبار الكود على استخدام النماذج المدعومة فقط وتجاهل gemini-3.8-flash أو أي اسم خاطئ
-  const validModels = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"];
-  const selectedModel = validModels.includes(requestedModel) ? requestedModel : DEFAULT_GEMINI_MODEL;
+  // التحقق: إذا كان النموذج المطلوب غير موجود في القائمة، استخدم النموذج الافتراضي المضمون
+  let selectedModel = DEFAULT_GEMINI_MODEL;
+  if (requestedModel && VALID_GEMINI_MODELS.includes(requestedModel)) {
+    selectedModel = requestedModel;
+  } else if (requestedModel && requestedModel.includes("pro")) {
+    selectedModel = "gemini-1.5-pro-latest"; // تصحيح ذكي إذا كان المستخدم يريد نسخة Pro
+  }
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent`;
 
@@ -83,10 +99,11 @@ async function fetchGemini(conversation, requestedModel) {
 async function fetchOpenRouter(conversation, requestedModel) {
   if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY غير موجود في البيئة");
 
-  // التأكد من استخدام نموذج مجاني يعمل دائماً
-  const selectedModel = (requestedModel && requestedModel.endsWith(":free") && requestedModel !== "openrouter/free") 
-    ? requestedModel 
-    : DEFAULT_OPENROUTER_MODEL;
+  // إذا لم يتم تحديد نموذج، أو تم طلب نموذج مجاني قديم، استخدم النموذج المجاني الفعال
+  let selectedModel = requestedModel || DEFAULT_OPENROUTER_MODEL;
+  if (selectedModel === "openrouter/free" || selectedModel === "google/gemini-2.0-flash-lite-001:free") {
+    selectedModel = DEFAULT_OPENROUTER_MODEL;
+  }
 
   const openRouterMessages = conversation.map(item => ({
     role: item.role === "model" ? "assistant" : "user",
@@ -127,7 +144,7 @@ app.post("/api/chat", async (req, res) => {
     const { message, messages, provider, model } = req.body;
     let conversation = [];
 
-    // تنسيق الرسائل
+    // تنسيق الرسائل (يدعم التاريخ كاملاً)
     if (Array.isArray(messages) && messages.length > 0) {
       conversation = messages
         .filter(item => item && item.content)
@@ -143,7 +160,7 @@ app.post("/api/chat", async (req, res) => {
       return res.status(400).json({ error: "الرسالة فارغة" });
     }
 
-    // 1. إذا تم طلب OpenRouter صراحة
+    // مسار 1: إذا طلب تطبيقك OpenRouter بالاسم
     if (provider === "openrouter") {
       try {
         const result = await fetchOpenRouter(conversation, model);
@@ -153,26 +170,27 @@ app.post("/api/chat", async (req, res) => {
       }
     }
 
-    // 2. الطلب الافتراضي لـ Gemini مع التحويل التلقائي لـ OpenRouter
+    // مسار 2: محاولة الاتصال بـ Gemini مباشرة، وفي حال الفشل نستخدم OpenRouter كطوارئ
     try {
       const result = await fetchGemini(conversation, model);
       return res.json({ reply: result.answer, answer: result.answer, provider: "gemini", model: result.model });
     } catch (geminiErr) {
-      console.warn("فشل Gemini (نفاد الحصة)، يتم التحويل إلى OpenRouter تلقائياً:", geminiErr.message);
+      console.warn("⚠️ فشل Gemini (إما نفاد الحصة أو مشكلة في النموذج). يتم الآن التبديل إلى OpenRouter...", geminiErr.message);
 
       if (OPENROUTER_API_KEY) {
         try {
-          const fallbackResult = await fetchOpenRouter(conversation, null);
+          const fallbackResult = await fetchOpenRouter(conversation, DEFAULT_OPENROUTER_MODEL);
           return res.json({
             reply: fallbackResult.answer,
             answer: fallbackResult.answer,
             provider: "openrouter",
             model: fallbackResult.model,
-            fallback: true
+            fallback: true,
+            note: "تم التحويل إلى OpenRouter مجاناً لتفادي التوقف."
           });
         } catch (openRouterErr) {
           return res.status(geminiErr.status || 500).json({
-            error: `Gemini فشل بسبب: ${geminiErr.message} | OpenRouter فشل بسبب: ${openRouterErr.message}`
+            error: `Gemini فشل بسبب: ${geminiErr.message} | OpenRouter فشل أيضاً بسبب: ${openRouterErr.message}`
           });
         }
       }
@@ -187,7 +205,7 @@ app.post("/api/chat", async (req, res) => {
 });
 
 /* =========================================================
-   IMAGE & VOICE
+   IMAGE & VOICE API
 ========================================================= */
 app.post("/api/image", async (req, res) => {
   try {
@@ -240,7 +258,7 @@ app.post("/api/image", async (req, res) => {
 
       return res.json({ success: true, imageUrl, provider: "pixazo", model: "sdxl", width: imageWidth, height: imageHeight });
     }
-    return res.status(400).json({ error: "نموذج الصورة غير معروف. استخدم flux أو sdxl." });
+    return res.status(400).json({ error: "نموذج الصورة غير معروف." });
   } catch (error) {
     console.error("PIXAZO ERROR:", error);
     return res.status(500).json({ error: error?.message || "حدث خطأ أثناء إنشاء الصورة" });
