@@ -19,8 +19,8 @@ const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 /* =========================================================
    MODELS
 ========================================================= */
-// تم تصحيح اسم النموذج إلى إصدار حقيقي من جوجل
 const DEFAULT_GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+const DEFAULT_OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free";
 
 /* =========================================================
    HOME
@@ -45,6 +45,76 @@ app.get("/api/health", (req, res) => {
     elevenlabs: Boolean(ELEVENLABS_API_KEY)
   });
 });
+
+/* =========================================================
+   HELPER FUNCTIONS (AI PROVIDERS)
+========================================================= */
+async function fetchGemini(conversation, model) {
+  if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY غير موجود في البيئة");
+
+  const selectedModel = model && model !== "gemini" ? model : DEFAULT_GEMINI_MODEL;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": GEMINI_API_KEY
+    },
+    body: JSON.stringify({ contents: conversation })
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const errorMsg = data?.error?.message || `Gemini HTTP ${response.status}`;
+    const err = new Error(errorMsg);
+    err.status = response.status;
+    err.details = data?.error;
+    throw err;
+  }
+
+  const answer = data?.candidates?.[0]?.content?.parts?.map(part => part?.text || "").join("").trim();
+  if (!answer) throw new Error("Gemini لم يرجع نصًا");
+
+  return { answer, model: selectedModel };
+}
+
+async function fetchOpenRouter(conversation, model) {
+  if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY غير موجود في البيئة");
+
+  const selectedModel = model && model !== "openrouter" ? model : DEFAULT_OPENROUTER_MODEL;
+
+  const openRouterMessages = conversation.map(item => ({
+    role: item.role === "model" ? "assistant" : "user",
+    content: item.parts?.map(part => part?.text || "").join("") || ""
+  }));
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+      "HTTP-Referer": "https://zaka-ai-backend-1.onrender.com",
+      "X-Title": "ZAKA AI"
+    },
+    body: JSON.stringify({
+      model: selectedModel,
+      messages: openRouterMessages
+    })
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data?.error?.message || `OpenRouter HTTP ${response.status}`);
+  }
+
+  const answer = data?.choices?.[0]?.message?.content;
+  if (!answer) throw new Error("OpenRouter لم يرجع نصًا");
+
+  return { answer, model: selectedModel };
+}
 
 /* =========================================================
    CHAT
@@ -77,111 +147,56 @@ app.post("/api/chat", async (req, res) => {
       return res.status(400).json({ error: "الرسالة فارغة" });
     }
 
-    /* =====================================================
-       GEMINI
-    ===================================================== */
-    if (!provider || provider === "gemini") {
-      if (!GEMINI_API_KEY) {
-        return res.status(500).json({ error: "GEMINI_API_KEY غير موجود في Render" });
-      }
-
-      const selectedModel = model && model !== "gemini" ? model : DEFAULT_GEMINI_MODEL;
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent`;
-
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": GEMINI_API_KEY
-        },
-        body: JSON.stringify({ contents: conversation })
-      });
-
-      const data = await response.json();
-      console.log("Gemini:", response.status, JSON.stringify(data));
-
-      if (!response.ok) {
-        const googleMessage = data?.error?.message || data?.error?.status || `Gemini HTTP ${response.status}`;
-        return res.status(response.status).json({
-          error: googleMessage,
-          status: response.status,
-          provider: "gemini",
-          model: selectedModel,
-          details: data?.error || null
-        });
-      }
-
-      const answer = data?.candidates?.[0]?.content?.parts?.map(part => part?.text || "").join("").trim();
-
-      if (!answer) {
-        console.error("Gemini returned no text:", JSON.stringify(data));
-        return res.status(502).json({
-          error: "Gemini لم يرجع نصًا",
-          details: data
-        });
-      }
-
-      return res.json({
-        reply: answer,
-        answer: answer,
-        provider: "gemini",
-        model: selectedModel
-      });
-    }
-
-    /* =====================================================
-       OPENROUTER
-    ===================================================== */
+    // 1. طلب صريح لـ OpenRouter
     if (provider === "openrouter") {
-      if (!OPENROUTER_API_KEY) {
-        return res.status(500).json({ error: "OPENROUTER_API_KEY غير موجود في Render" });
-      }
-
-      const selectedModel = model && model !== "openrouter" ? model : "openrouter/free";
-
-      const openRouterMessages = conversation.map(item => ({
-        role: item.role === "model" ? "assistant" : "user",
-        content: item.parts?.map(part => part?.text || "").join("") || ""
-      }));
-
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-          "HTTP-Referer": "https://zaka-ai-backend-1.onrender.com",
-          "X-Title": "ZAKA AI"
-        },
-        body: JSON.stringify({
-          model: selectedModel,
-          messages: openRouterMessages
-        })
-      });
-
-      const data = await response.json();
-      console.log("OpenRouter:", response.status, JSON.stringify(data));
-
-      if (!response.ok) {
-        return res.status(response.status).json({
-          error: data?.error?.message || `OpenRouter HTTP ${response.status}`
+      try {
+        const result = await fetchOpenRouter(conversation, model);
+        return res.json({
+          reply: result.answer,
+          answer: result.answer,
+          provider: "openrouter",
+          model: result.model
         });
+      } catch (err) {
+        return res.status(500).json({ error: err.message });
       }
-
-      const answer = data?.choices?.[0]?.message?.content;
-
-      if (!answer) {
-        return res.status(502).json({ error: "OpenRouter لم يرجع نصًا" });
-      }
-
-      return res.json({
-        reply: answer,
-        answer: answer,
-        provider: "openrouter",
-        model: selectedModel
-      });
     }
 
-    return res.status(400).json({ error: "مزود الذكاء الاصطناعي غير معروف" });
+    // 2. طلب Gemini الافتراضي مع التحويل التلقائي (Fallback) إلى OpenRouter عند الفشل
+    try {
+      const result = await fetchGemini(conversation, model);
+      return res.json({
+        reply: result.answer,
+        answer: result.answer,
+        provider: "gemini",
+        model: result.model
+      });
+    } catch (geminiErr) {
+      console.warn("فشل Gemini، يتم التحويل التلقائي لـ OpenRouter:", geminiErr.message);
+
+      if (OPENROUTER_API_KEY) {
+        try {
+          const fallbackResult = await fetchOpenRouter(conversation, null);
+          return res.json({
+            reply: fallbackResult.answer,
+            answer: fallbackResult.answer,
+            provider: "openrouter",
+            model: fallbackResult.model,
+            fallback: true
+          });
+        } catch (openRouterErr) {
+          return res.status(geminiErr.status || 500).json({
+            error: `Gemini: ${geminiErr.message} | OpenRouter: ${openRouterErr.message}`,
+            details: geminiErr.details || null
+          });
+        }
+      }
+
+      return res.status(geminiErr.status || 500).json({
+        error: geminiErr.message,
+        details: geminiErr.details || null
+      });
+    }
 
   } catch (error) {
     console.error("SERVER ERROR:", error);
@@ -206,9 +221,6 @@ app.post("/api/image", async (req, res) => {
 
     const selectedModel = model || "flux";
 
-    /* =====================================================
-       FLUX
-    ===================================================== */
     if (selectedModel === "flux") {
       let imageWidth = Number(width) || 512;
       let imageHeight = Number(height) || 512;
@@ -220,7 +232,6 @@ app.post("/api/image", async (req, res) => {
       ];
 
       const validSize = allowedSizes.some(([w, h]) => w === imageWidth && h === imageHeight);
-
       if (!validSize) {
         imageWidth = 512;
         imageHeight = 512;
@@ -243,45 +254,23 @@ app.post("/api/image", async (req, res) => {
       });
 
       const text = await response.text();
-      console.log("Pixazo Flux:", response.status, text);
-
       let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        return res.status(response.status).json({
-          error: text || `Pixazo Flux HTTP ${response.status}`
-        });
+      try { data = JSON.parse(text); } catch {
+        return res.status(response.status).json({ error: text || `Pixazo Flux HTTP ${response.status}` });
       }
 
       if (!response.ok) {
-        return res.status(response.status).json({
-          error: data?.message || data?.error || `Pixazo Flux HTTP ${response.status}`
-        });
+        return res.status(response.status).json({ error: data?.message || data?.error || `Pixazo Flux HTTP ${response.status}` });
       }
 
       const imageUrl = data?.output;
-
       if (!imageUrl) {
-        return res.status(502).json({
-          error: "Pixazo Flux لم يرجع رابط الصورة",
-          pixazo: data
-        });
+        return res.status(502).json({ error: "Pixazo Flux لم يرجع رابط الصورة", pixazo: data });
       }
 
-      return res.json({
-        success: true,
-        imageUrl,
-        provider: "pixazo",
-        model: "flux",
-        width: imageWidth,
-        height: imageHeight
-      });
+      return res.json({ success: true, imageUrl, provider: "pixazo", model: "flux", width: imageWidth, height: imageHeight });
     }
 
-    /* =====================================================
-       SDXL
-    ===================================================== */
     if (selectedModel === "sdxl") {
       let imageWidth = Number(width) || 1024;
       let imageHeight = Number(height) || 1024;
@@ -308,40 +297,21 @@ app.post("/api/image", async (req, res) => {
       });
 
       const text = await response.text();
-      console.log("Pixazo SDXL:", response.status, text);
-
       let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        return res.status(response.status).json({
-          error: text || `Pixazo SDXL HTTP ${response.status}`
-        });
+      try { data = JSON.parse(text); } catch {
+        return res.status(response.status).json({ error: text || `Pixazo SDXL HTTP ${response.status}` });
       }
 
       if (!response.ok) {
-        return res.status(response.status).json({
-          error: data?.message || data?.error || `Pixazo SDXL HTTP ${response.status}`
-        });
+        return res.status(response.status).json({ error: data?.message || data?.error || `Pixazo SDXL HTTP ${response.status}` });
       }
 
       const imageUrl = data?.imageUrl || data?.output;
-
       if (!imageUrl) {
-        return res.status(502).json({
-          error: "Pixazo SDXL لم يرجع رابط الصورة",
-          pixazo: data
-        });
+        return res.status(502).json({ error: "Pixazo SDXL لم يرجع رابط الصورة", pixazo: data });
       }
 
-      return res.json({
-        success: true,
-        imageUrl,
-        provider: "pixazo",
-        model: "sdxl",
-        width: imageWidth,
-        height: imageHeight
-      });
+      return res.json({ success: true, imageUrl, provider: "pixazo", model: "sdxl", width: imageWidth, height: imageHeight });
     }
 
     return res.status(400).json({ error: "نموذج الصورة غير معروف. استخدم flux أو sdxl." });
@@ -421,3 +391,4 @@ app.get("/api/voice-status", (req, res) => {
 app.listen(PORT, () => {
   console.log(`ZAKA AI Backend يعمل على المنفذ ${PORT}`);
 });
+
