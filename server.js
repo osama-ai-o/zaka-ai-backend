@@ -2,19 +2,19 @@ const express = require("express");
 
 const cors = require("cors");
 
-const path = require("path");
-
-const fs = require("fs");
-
 const app = express();
 
-/* =========================================================
+app.use(cors());
 
-   CONFIG
-
-========================================================= */
+app.use(express.json({ limit: "2mb" }));
 
 const PORT = process.env.PORT || 3000;
+
+// ======================================
+
+// API KEYS
+
+// ======================================
 
 const GEMINI_API_KEY =
 
@@ -32,583 +32,87 @@ const ELEVENLABS_API_KEY =
 
   process.env.ELEVENLABS_API_KEY;
 
-const GEMINI_MODEL =
+// ======================================
 
-  process.env.GEMINI_MODEL ||
+// MODELS
+
+// ======================================
+
+const DEFAULT_MODEL =
 
   "gemini-3.8-flash";
 
-const OPENROUTER_MODEL =
+// ======================================
 
-  "openrouter/free";
+// HOME
 
-const ELEVENLABS_VOICE_ID =
-
-  process.env.ELEVENLABS_VOICE_ID ||
-
-  "JBFqnCBsd6RMkjVDRZzb";
-
-/* =========================================================
-
-   MIDDLEWARE
-
-========================================================= */
-
-app.use(
-
-  cors({
-
-    origin: true,
-
-    methods: ["GET", "POST", "OPTIONS"],
-
-    allowedHeaders: ["Content-Type", "Authorization"]
-
-  })
-
-);
-
-app.use(
-
-  express.json({
-
-    limit: "5mb"
-
-  })
-
-);
-
-/* =========================================================
-
-   FRONTEND DETECTION
-
-========================================================= */
-
-const rootDir = __dirname;
-
-const publicDir =
-
-  path.join(rootDir, "public");
-
-let frontendDir = null;
-
-if (
-
-  fs.existsSync(
-
-    path.join(publicDir, "index.html")
-
-  )
-
-) {
-
-  frontendDir = publicDir;
-
-} else if (
-
-  fs.existsSync(
-
-    path.join(rootDir, "index.html")
-
-  )
-
-) {
-
-  frontendDir = rootDir;
-
-}
-
-if (frontendDir) {
-
-  app.use(
-
-    express.static(frontendDir)
-
-  );
-
-}
-
-/* =========================================================
-
-   HELPERS
-
-========================================================= */
-
-function createTimeout(ms = 60000) {
-
-  return AbortSignal.timeout(ms);
-
-}
-
-function cleanMessages(messages) {
-
-  if (!Array.isArray(messages)) {
-
-    return [];
-
-  }
-
-  return messages
-
-    .filter(
-
-      (m) =>
-
-        m &&
-
-        (m.role === "user" ||
-
-         m.role === "assistant") &&
-
-        typeof m.content === "string" &&
-
-        m.content.trim()
-
-    )
-
-    .map((m) => ({
-
-      role: m.role,
-
-      content: m.content.trim()
-
-    }));
-
-}
-
-function getErrorMessage(data, fallback) {
-
-  if (!data) {
-
-    return fallback;
-
-  }
-
-  if (typeof data.error === "string") {
-
-    return data.error;
-
-  }
-
-  if (
-
-    data.error &&
-
-    typeof data.error.message === "string"
-
-  ) {
-
-    return data.error.message;
-
-  }
-
-  if (
-
-    typeof data.message === "string"
-
-  ) {
-
-    return data.message;
-
-  }
-
-  return fallback;
-
-}
-
-/* =========================================================
-
-   HOME / HEALTH
-
-========================================================= */
+// ======================================
 
 app.get("/", (req, res) => {
 
-  if (frontendDir) {
-
-    return res.sendFile(
-
-      path.join(
-
-        frontendDir,
-
-        "index.html"
-
-      )
-
-    );
-
-  }
-
-  return res.json({
-
-    ok: true,
-
-    name: "ALWAFER AI",
-
-    message: "ALWAFER AI backend is running",
-
-    status: "online"
-
-  });
-
-});
-
-app.get("/api/health", (req, res) => {
-
   res.json({
-
-    ok: true,
-
-    name: "ALWAFER AI",
 
     status: "online",
 
-    services: {
+    name: "ZAKA AI",
 
-      gemini: Boolean(
+    message:
 
-        GEMINI_API_KEY
+      "ZAKA AI Backend يعمل بنجاح 🚀"
 
-      ),
+  });
 
-      openrouter: Boolean(
+});
 
-        OPENROUTER_API_KEY
+// ======================================
 
-      ),
+// CHAT
 
-      pixazo: Boolean(
+// ======================================
 
-        PIXAZO_API_KEY
+app.post("/api/chat", async (req, res) => {
 
-      ),
+  try {
 
-      elevenlabs: Boolean(
+    const {
 
-        ELEVENLABS_API_KEY
+      message,
 
-      )
+      provider,
+
+      model
+
+    } = req.body;
+
+    if (
+
+      !message ||
+
+      !message.trim()
+
+    ) {
+
+      return res.status(400).json({
+
+        error: "الرسالة فارغة"
+
+      });
 
     }
 
-  });
+    // ==================================
 
-});
+    // GEMINI
 
-/* =========================================================
+    // ==================================
 
-   MODELS
+    if (
 
-========================================================= */
+      !provider ||
 
-app.get("/api/models", (req, res) => {
+      provider === "gemini"
 
-  res.json({
-
-    defaultProvider:
-
-      GEMINI_API_KEY
-
-        ? "gemini"
-
-        : "openrouter",
-
-    gemini: [
-
-      {
-
-        id: "gemini-3.8-flash",
-
-        name: "Gemini 3.8 Flash"
-
-      },
-
-      {
-
-        id: "gemini-3.7-flash",
-
-        name: "Gemini 3.7 Flash"
-
-      },
-
-      {
-
-        id: "gemini-3.6-flash",
-
-        name: "Gemini 3.6 Flash"
-
-      },
-
-      {
-
-        id: "gemini-3.5-flash",
-
-        name: "Gemini 3.5 Flash"
-
-      },
-
-      {
-
-        id: "gemini-3.5-flash-lite",
-
-        name: "Gemini 3.5 Flash Lite"
-
-      },
-
-      {
-
-        id: "gemini-3.1-flash-lite",
-
-        name: "Gemini 3.1 Flash Lite"
-
-      }
-
-    ],
-
-    openrouter: [
-
-      {
-
-        id: "openrouter/free",
-
-        name: "OpenRouter Free"
-
-      }
-
-    ],
-
-    image: [
-
-      {
-
-        id: "flux",
-
-        name: "FLUX"
-
-      },
-
-      {
-
-        id: "sdxl",
-
-        name: "Stable Diffusion XL"
-
-      }
-
-    ]
-
-  });
-
-});
-
-/* =========================================================
-
-   CHAT
-
-========================================================= */
-
-app.post(
-
-  "/api/chat",
-
-  async (req, res) => {
-
-    try {
-
-      const {
-
-        messages,
-
-        provider,
-
-        model
-
-      } = req.body;
-
-      const clean =
-
-        cleanMessages(messages);
-
-      if (!clean.length) {
-
-        return res.status(400).json({
-
-          error:
-
-            "لا توجد رسائل صالحة."
-
-        });
-
-      }
-
-      /* =====================================================
-
-         OPENROUTER
-
-      ===================================================== */
-
-      if (
-
-        provider === "openrouter"
-
-      ) {
-
-        if (
-
-          !OPENROUTER_API_KEY
-
-        ) {
-
-          return res.status(500).json({
-
-            error:
-
-              "OPENROUTER_API_KEY غير موجود في Render."
-
-          });
-
-        }
-
-        const response =
-
-          await fetch(
-
-            "https://openrouter.ai/api/v1/chat/completions",
-
-            {
-
-              method: "POST",
-
-              signal:
-
-                createTimeout(90000),
-
-              headers: {
-
-                "Content-Type":
-
-                  "application/json",
-
-                "Authorization":
-
-                  `Bearer ${OPENROUTER_API_KEY}`,
-
-                "HTTP-Referer":
-
-                  "https://zaka-ai-backend-1.onrender.com",
-
-                "X-Title":
-
-                  "ALWAFER AI"
-
-              },
-
-              body:
-
-                JSON.stringify({
-
-                  model:
-
-                    OPENROUTER_MODEL,
-
-                  messages:
-
-                    clean
-
-                })
-
-            }
-
-          );
-
-        const data =
-
-          await response.json();
-
-        if (!response.ok) {
-
-          return res.status(
-
-            response.status
-
-          ).json({
-
-            error:
-
-              getErrorMessage(
-
-                data,
-
-                "OpenRouter request failed"
-
-              ),
-
-            details: data
-
-          });
-
-        }
-
-        const reply =
-
-          data
-
-            ?.choices?.[0]
-
-            ?.message
-
-            ?.content;
-
-        if (!reply) {
-
-          return res.status(500).json({
-
-            error:
-
-              "OpenRouter لم يرجع نصًا.",
-
-            details: data
-
-          });
-
-        }
-
-        return res.json({
-
-          reply: String(reply)
-
-        });
-
-      }
-
-      /* =====================================================
-
-         GEMINI
-
-      ===================================================== */
-
-      if (
-
-        provider !== "gemini" &&
-
-        provider !== undefined &&
-
-        provider !== null &&
-
-        provider !== ""
-
-      ) {
-
-        return res.status(400).json({
-
-          error:
-
-            "مزود الذكاء الاصطناعي غير معروف."
-
-        });
-
-      }
+    ) {
 
       if (!GEMINI_API_KEY) {
 
@@ -616,7 +120,7 @@ app.post(
 
           error:
 
-            "GEMINI_API_KEY غير موجود في Render."
+            "GEMINI_API_KEY غير موجود في Render"
 
         });
 
@@ -624,65 +128,195 @@ app.post(
 
       const selectedModel =
 
-        typeof model === "string" &&
+        model || DEFAULT_MODEL;
 
-        model.trim()
+      const url =
 
-          ? model.trim()
+        `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent`;
 
-          : GEMINI_MODEL;
+      const response =
 
-      const contents =
+        await fetch(url, {
 
-        clean.map((m) => ({
+          method: "POST",
 
-          role:
+          headers: {
 
-            m.role === "assistant"
+            "Content-Type":
 
-              ? "model"
+              "application/json",
 
-              : "user",
+            "x-goog-api-key":
 
-          parts: [
+              GEMINI_API_KEY
 
-            {
+          },
 
-              text: m.content
+          body:
 
-            }
+            JSON.stringify({
 
-          ]
+              contents: [
 
-        }));
+                {
+
+                  role: "user",
+
+                  parts: [
+
+                    {
+
+                      text: message
+
+                    }
+
+                  ]
+
+                }
+
+              ]
+
+            })
+
+        });
+
+      const data =
+
+        await response.json();
+
+      if (!response.ok) {
+
+        console.error(
+
+          "Gemini:",
+
+          data
+
+        );
+
+        return res.status(
+
+          response.status
+
+        ).json({
+
+          error:
+
+            data?.error?.message ||
+
+            "Gemini API Error"
+
+        });
+
+      }
+
+      const answer =
+
+        data
+
+          ?.candidates?.[0]
+
+          ?.content?.parts
+
+          ?.map(
+
+            part =>
+
+              part.text || ""
+
+          )
+
+          .join("")
+
+          .trim();
+
+      if (!answer) {
+
+        return res.status(502).json({
+
+          error:
+
+            "Gemini لم يرجع نصًا"
+
+        });
+
+      }
+
+      return res.json({
+
+        answer,
+
+        provider:
+
+          "gemini",
+
+        model:
+
+          selectedModel
+
+      });
+
+    }
+
+    // ==================================
+
+    // OPENROUTER
+
+    // ==================================
+
+    if (
+
+      provider ===
+
+      "openrouter"
+
+    ) {
+
+      if (!OPENROUTER_API_KEY) {
+
+        return res.status(500).json({
+
+          error:
+
+            "OPENROUTER_API_KEY غير موجود في Render"
+
+        });
+
+      }
+
+      const selectedModel =
+
+        model ||
+
+        "openrouter/free";
 
       const response =
 
         await fetch(
 
-          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-
-            selectedModel
-
-          )}:generateContent?key=${encodeURIComponent(
-
-            GEMINI_API_KEY
-
-          )}`,
+          "https://openrouter.ai/api/v1/chat/completions",
 
           {
 
             method: "POST",
 
-            signal:
-
-              createTimeout(90000),
-
             headers: {
 
               "Content-Type":
 
-                "application/json"
+                "application/json",
+
+              "Authorization":
+
+                `Bearer ${OPENROUTER_API_KEY}`,
+
+              "HTTP-Referer":
+
+                "https://zaka-ai-backend-1.onrender.com",
+
+              "X-Title":
+
+                "ZAKA AI"
 
             },
 
@@ -690,7 +324,23 @@ app.post(
 
               JSON.stringify({
 
-                contents
+                model:
+
+                  selectedModel,
+
+                messages: [
+
+                  {
+
+                    role: "user",
+
+                    content:
+
+                      message
+
+                  }
+
+                ]
 
               })
 
@@ -702,6 +352,16 @@ app.post(
 
         await response.json();
 
+      console.log(
+
+        "OpenRouter:",
+
+        response.status,
+
+        JSON.stringify(data)
+
+      );
+
       if (!response.ok) {
 
         return res.status(
@@ -712,61 +372,29 @@ app.post(
 
           error:
 
-            getErrorMessage(
+            data?.error?.message ||
 
-              data,
-
-              "Gemini request failed"
-
-            ),
-
-          details: data
+            `OpenRouter HTTP ${response.status}`
 
         });
 
       }
 
-      const parts =
+      const answer =
 
         data
 
-          ?.candidates?.[0]
+          ?.choices?.[0]
 
-          ?.content?.parts;
+          ?.message?.content;
 
-      const reply =
+      if (!answer) {
 
-        Array.isArray(parts)
-
-          ? parts
-
-              .map(
-
-                (p) =>
-
-                  typeof p.text === "string"
-
-                    ? p.text
-
-                    : ""
-
-              )
-
-              .join("")
-
-              .trim()
-
-          : "";
-
-      if (!reply) {
-
-        return res.status(500).json({
+        return res.status(502).json({
 
           error:
 
-            "Gemini لم يرجع نصًا.",
-
-          details: data
+            "OpenRouter لم يرجع نصًا"
 
         });
 
@@ -774,125 +402,135 @@ app.post(
 
       return res.json({
 
-        reply
+        answer,
 
-      });
+        provider:
 
-    } catch (error) {
+          "openrouter",
 
-      console.error(
+        model:
 
-        "CHAT ERROR:",
-
-        error
-
-      );
-
-      return res.status(500).json({
-
-        error:
-
-          error.name ===
-
-          "TimeoutError"
-
-            ? "انتهت مهلة الاتصال بالخدمة."
-
-            : (
-
-                error.message ||
-
-                "حدث خطأ في السيرفر."
-
-              )
+          selectedModel
 
       });
 
     }
 
+    return res.status(400).json({
+
+      error:
+
+        "مزود الذكاء الاصطناعي غير معروف"
+
+    });
+
+  } catch (error) {
+
+    console.error(
+
+      "SERVER ERROR:",
+
+      error
+
+    );
+
+    return res.status(500).json({
+
+      error:
+
+        error?.message ||
+
+        "خطأ داخلي في الخادم"
+
+    });
+
   }
 
-);
+});
 
-/* =========================================================
+// ======================================
 
-   IMAGE GENERATION
+// IMAGE - PIXAZO
 
-========================================================= */
+// FLUX SCHNELL + SDXL
 
-app.post(
+// ======================================
 
-  "/api/image",
+app.post("/api/image", async (req, res) => {
 
-  async (req, res) => {
+  try {
 
-    try {
+    const {
 
-      const {
+      prompt,
 
-        prompt,
+      width,
 
-        model = "flux",
+      height,
 
-        width = 512,
+      model
 
-        height = 512
+    } = req.body;
 
-      } = req.body;
+    if (
 
-      if (!PIXAZO_API_KEY) {
+      !prompt ||
 
-        return res.status(500).json({
+      !prompt.trim()
 
-          error:
+    ) {
 
-            "PIXAZO_API_KEY غير موجود في Render."
+      return res.status(400).json({
 
-        });
+        error:
 
-      }
+          "وصف الصورة فارغ"
 
-      if (
+      });
 
-        typeof prompt !== "string" ||
+    }
 
-        !prompt.trim()
+    if (!PIXAZO_API_KEY) {
 
-      ) {
+      return res.status(500).json({
 
-        return res.status(400).json({
+        error:
 
-          error:
+          "PIXAZO_API_KEY غير موجود في Render"
 
-            "اكتب وصف الصورة أولًا."
+      });
 
-        });
+    }
 
-      }
+    // ==================================
 
-      const allowedModels = [
+    // اختيار نموذج الصورة
 
-        "flux",
+    // ==================================
 
-        "sdxl"
+    const selectedModel =
 
-      ];
+      model || "flux";
 
-      if (
+    // ==================================
 
-        !allowedModels.includes(model)
+    // FLUX SCHNELL
 
-      ) {
+    // ==================================
 
-        return res.status(400).json({
+    if (
 
-          error:
+      selectedModel === "flux"
 
-            "نموذج الصورة غير صالح."
+    ) {
 
-        });
+      let imageWidth =
 
-      }
+        Number(width) || 512;
+
+      let imageHeight =
+
+        Number(height) || 512;
 
       const allowedSizes = [
 
@@ -910,115 +548,17 @@ app.post(
 
           ([w, h]) =>
 
-            Number(width) === w &&
+            w === imageWidth &&
 
-            Number(height) === h
+            h === imageHeight
 
         );
 
       if (!validSize) {
 
-        return res.status(400).json({
+        imageWidth = 512;
 
-          error:
-
-            "مقاس الصورة غير صالح."
-
-        });
-
-      }
-
-      let endpoint;
-
-      let body;
-
-      /* =====================================================
-
-         FLUX
-
-      ===================================================== */
-
-      if (model === "flux") {
-
-        endpoint =
-
-          "https://gateway.pixazo.ai/flux-1-schnell/v1/getData";
-
-        body = {
-
-          prompt:
-
-            prompt.trim(),
-
-          num_steps: 4,
-
-          seed:
-
-            Math.floor(
-
-              Math.random() *
-
-              1000000
-
-            ),
-
-          width:
-
-            Number(width),
-
-          height:
-
-            Number(height)
-
-        };
-
-      }
-
-      /* =====================================================
-
-         SDXL
-
-      ===================================================== */
-
-      if (model === "sdxl") {
-
-        endpoint =
-
-          "https://gateway.pixazo.ai/getImage/v1/getSDXLImage";
-
-        body = {
-
-          prompt:
-
-            prompt.trim(),
-
-          negative_prompt:
-
-            "blurry, low quality, distorted, watermark, deformed",
-
-          height:
-
-            Number(height),
-
-          width:
-
-            Number(width),
-
-          num_steps: 20,
-
-          guidance_scale: 5,
-
-          seed:
-
-            Math.floor(
-
-              Math.random() *
-
-              1000000
-
-            )
-
-        };
+        imageHeight = 512;
 
       }
 
@@ -1026,21 +566,21 @@ app.post(
 
         await fetch(
 
-          endpoint,
+          "https://gateway.pixazo.ai/flux-1-schnell/v1/getData",
 
           {
 
             method: "POST",
-
-            signal:
-
-              createTimeout(120000),
 
             headers: {
 
               "Content-Type":
 
                 "application/json",
+
+              "Cache-Control":
+
+                "no-cache",
 
               "Ocp-Apim-Subscription-Key":
 
@@ -1050,15 +590,73 @@ app.post(
 
             body:
 
-              JSON.stringify(body)
+              JSON.stringify({
+
+                prompt:
+
+                  prompt.trim(),
+
+                num_steps:
+
+                  4,
+
+                seed:
+
+                  15,
+
+                width:
+
+                  imageWidth,
+
+                height:
+
+                  imageHeight
+
+              })
 
           }
 
         );
 
-      const data =
+      const text =
 
-        await response.json();
+        await response.text();
+
+      console.log(
+
+        "Pixazo Flux:",
+
+        response.status,
+
+        text
+
+      );
+
+      let data;
+
+      try {
+
+        data =
+
+          JSON.parse(text);
+
+      } catch {
+
+        return res.status(
+
+          response.status
+
+        ).json({
+
+          error:
+
+            text ||
+
+            `Pixazo Flux HTTP ${response.status}`
+
+        });
+
+      }
 
       if (!response.ok) {
 
@@ -1070,15 +668,233 @@ app.post(
 
           error:
 
-            getErrorMessage(
+            data?.message ||
 
-              data,
+            data?.error ||
 
-              "Pixazo image request failed"
+            `Pixazo Flux HTTP ${response.status}`
 
-            ),
+        });
 
-          details: data
+      }
+
+      const imageUrl =
+
+        data?.output;
+
+      if (!imageUrl) {
+
+        return res.status(502).json({
+
+          error:
+
+            "Pixazo Flux لم يرجع رابط الصورة",
+
+          pixazo:
+
+            data
+
+        });
+
+      }
+
+      return res.json({
+
+        success:
+
+          true,
+
+        imageUrl,
+
+        provider:
+
+          "pixazo",
+
+        model:
+
+          "flux",
+
+        width:
+
+          imageWidth,
+
+        height:
+
+          imageHeight
+
+      });
+
+    }
+
+    // ==================================
+
+    // SDXL
+
+    // ==================================
+
+    if (
+
+      selectedModel === "sdxl"
+
+    ) {
+
+      let imageWidth =
+
+        Number(width) || 1024;
+
+      let imageHeight =
+
+        Number(height) || 1024;
+
+      // SDXL يدعم من 256 إلى 2048
+
+      if (
+
+        imageWidth < 256 ||
+
+        imageWidth > 2048
+
+      ) {
+
+        imageWidth = 1024;
+
+      }
+
+      if (
+
+        imageHeight < 256 ||
+
+        imageHeight > 2048
+
+      ) {
+
+        imageHeight = 1024;
+
+      }
+
+      const response =
+
+        await fetch(
+
+          "https://gateway.pixazo.ai/getImage/v1/getSDXLImage",
+
+          {
+
+            method: "POST",
+
+            headers: {
+
+              "Content-Type":
+
+                "application/json",
+
+              "Cache-Control":
+
+                "no-cache",
+
+              "Ocp-Apim-Subscription-Key":
+
+                PIXAZO_API_KEY
+
+            },
+
+            body:
+
+              JSON.stringify({
+
+                prompt:
+
+                  prompt.trim(),
+
+                negative_prompt:
+
+                  "blurry, low quality, distorted, watermark",
+
+                height:
+
+                  imageHeight,
+
+                width:
+
+                  imageWidth,
+
+                num_steps:
+
+                  20,
+
+                guidance_scale:
+
+                  5,
+
+                seed:
+
+                  Math.floor(
+
+                    Math.random() * 1000000000
+
+                  )
+
+              })
+
+          }
+
+        );
+
+      const text =
+
+        await response.text();
+
+      console.log(
+
+        "Pixazo SDXL:",
+
+        response.status,
+
+        text
+
+      );
+
+      let data;
+
+      try {
+
+        data =
+
+          JSON.parse(text);
+
+      } catch {
+
+        return res.status(
+
+          response.status
+
+        ).json({
+
+          error:
+
+            text ||
+
+            `Pixazo SDXL HTTP ${response.status}`
+
+        });
+
+      }
+
+      if (!response.ok) {
+
+        return res.status(
+
+          response.status
+
+        ).json({
+
+          error:
+
+            data?.message ||
+
+            data?.error ||
+
+            `Pixazo SDXL HTTP ${response.status}`
 
         });
 
@@ -1088,25 +904,19 @@ app.post(
 
         data?.imageUrl ||
 
-        data?.output ||
-
-        data?.image?.url ||
-
-        data?.data?.imageUrl ||
-
-        data?.data?.output ||
-
-        data?.data?.image?.url;
+        data?.output;
 
       if (!imageUrl) {
 
-        return res.status(500).json({
+        return res.status(502).json({
 
           error:
 
-            "Pixazo لم يرجع رابط الصورة.",
+            "Pixazo SDXL لم يرجع رابط الصورة",
 
-          details: data
+          pixazo:
+
+            data
 
         });
 
@@ -1114,249 +924,255 @@ app.post(
 
       return res.json({
 
-        imageUrl
+        success:
 
-      });
+          true,
 
-    } catch (error) {
+        imageUrl,
 
-      console.error(
+        provider:
 
-        "IMAGE ERROR:",
+          "pixazo",
 
-        error
+        model:
 
-      );
+          "sdxl",
 
-      return res.status(500).json({
+        width:
 
-        error:
+          imageWidth,
 
-          error.name ===
+        height:
 
-          "TimeoutError"
-
-            ? "انتهت مهلة إنشاء الصورة."
-
-            : (
-
-                error.message ||
-
-                "حدث خطأ أثناء إنشاء الصورة."
-
-              )
+          imageHeight
 
       });
 
     }
 
+    // ==================================
+
+    // نموذج غير معروف
+
+    // ==================================
+
+    return res.status(400).json({
+
+      error:
+
+        "نموذج الصورة غير معروف. استخدم flux أو sdxl."
+
+    });
+
+  } catch (error) {
+
+    console.error(
+
+      "PIXAZO ERROR:",
+
+      error
+
+    );
+
+    return res.status(500).json({
+
+      error:
+
+        error?.message ||
+
+        "حدث خطأ أثناء إنشاء الصورة"
+
+    });
+
   }
 
-);
+});
 
-/* =========================================================
+// ======================================
 
-   VOICE - ELEVENLABS
+// VOICE - ELEVENLABS
 
-========================================================= */
+// ======================================
 
-app.post(
+app.post("/api/voice", async (req, res) => {
 
-  "/api/voice",
+  try {
 
-  async (req, res) => {
+    const {
 
-    try {
+      text
 
-      const {
+    } = req.body;
 
-        text
+    if (
 
-      } = req.body;
+      !text ||
 
-      if (!ELEVENLABS_API_KEY) {
+      !text.trim()
 
-        return res.status(500).json({
+    ) {
 
-          error:
-
-            "ELEVENLABS_API_KEY غير موجود في Render."
-
-        });
-
-      }
-
-      if (
-
-        typeof text !== "string" ||
-
-        !text.trim()
-
-      ) {
-
-        return res.status(400).json({
-
-          error:
-
-            "النص الصوتي فارغ."
-
-        });
-
-      }
-
-      const cleanText =
-
-        text
-
-          .trim()
-
-          .slice(0, 5000);
-
-      const response =
-
-        await fetch(
-
-          `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(
-
-            ELEVENLABS_VOICE_ID
-
-          )}?output_format=mp3_44100_128`,
-
-          {
-
-            method: "POST",
-
-            signal:
-
-              createTimeout(90000),
-
-            headers: {
-
-              "Content-Type":
-
-                "application/json",
-
-              "xi-api-key":
-
-                ELEVENLABS_API_KEY
-
-            },
-
-            body:
-
-              JSON.stringify({
-
-                text:
-
-                  cleanText,
-
-                model_id:
-
-                  "eleven_multilingual_v2"
-
-              })
-
-          }
-
-        );
-
-      if (!response.ok) {
-
-        const errorText =
-
-          await response.text();
-
-        return res.status(
-
-          response.status
-
-        ).json({
-
-          error:
-
-            errorText ||
-
-            "ElevenLabs request failed"
-
-        });
-
-      }
-
-      const audioBuffer =
-
-        await response.arrayBuffer();
-
-      res.setHeader(
-
-        "Content-Type",
-
-        "audio/mpeg"
-
-      );
-
-      res.setHeader(
-
-        "Content-Length",
-
-        audioBuffer.byteLength
-
-      );
-
-      res.setHeader(
-
-        "Cache-Control",
-
-        "no-store"
-
-      );
-
-      return res.send(
-
-        Buffer.from(audioBuffer)
-
-      );
-
-    } catch (error) {
-
-      console.error(
-
-        "VOICE ERROR:",
-
-        error
-
-      );
-
-      return res.status(500).json({
+      return res.status(400).json({
 
         error:
 
-          error.name ===
-
-          "TimeoutError"
-
-            ? "انتهت مهلة إنشاء الصوت."
-
-            : (
-
-                error.message ||
-
-                "حدث خطأ أثناء إنشاء الصوت."
-
-              )
+          "النص فارغ"
 
       });
 
     }
 
+    if (!ELEVENLABS_API_KEY) {
+
+      return res.status(500).json({
+
+        error:
+
+          "ELEVENLABS_API_KEY غير موجود في Render"
+
+      });
+
+    }
+
+    const voiceId =
+
+      "JBFqnCBsd6RMkjVDRZzb";
+
+    const url =
+
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`;
+
+    const response =
+
+      await fetch(url, {
+
+        method: "POST",
+
+        headers: {
+
+          "xi-api-key":
+
+            ELEVENLABS_API_KEY,
+
+          "Content-Type":
+
+            "application/json"
+
+        },
+
+        body:
+
+          JSON.stringify({
+
+            text:
+
+              text.trim(),
+
+            model_id:
+
+              "eleven_multilingual_v2"
+
+          })
+
+      });
+
+    if (!response.ok) {
+
+      const errorText =
+
+        await response.text();
+
+      console.error(
+
+        "ElevenLabs:",
+
+        response.status,
+
+        errorText
+
+      );
+
+      return res.status(
+
+        response.status
+
+      ).json({
+
+        error:
+
+          `ElevenLabs HTTP ${response.status}: ${errorText}`
+
+      });
+
+    }
+
+    const audioBuffer =
+
+      Buffer.from(
+
+        await response.arrayBuffer()
+
+      );
+
+    res.setHeader(
+
+      "Content-Type",
+
+      "audio/mpeg"
+
+    );
+
+    res.setHeader(
+
+      "Content-Length",
+
+      audioBuffer.length
+
+    );
+
+    res.setHeader(
+
+      "Cache-Control",
+
+      "no-cache"
+
+    );
+
+    return res.send(
+
+      audioBuffer
+
+    );
+
+  } catch (error) {
+
+    console.error(
+
+      "VOICE ERROR:",
+
+      error
+
+    );
+
+    return res.status(500).json({
+
+      error:
+
+        error?.message ||
+
+        "حدث خطأ أثناء إنشاء الصوت"
+
+    });
+
   }
 
-);
+});
 
-/* =========================================================
+// ======================================
 
-   VOICE STATUS
+// TEST VOICE
 
-========================================================= */
+// ======================================
 
 app.get(
 
@@ -1366,6 +1182,10 @@ app.get(
 
     res.json({
 
+      voice:
+
+        "ElevenLabs",
+
       configured:
 
         Boolean(
@@ -1374,13 +1194,9 @@ app.get(
 
         ),
 
-      voiceId:
+      endpoint:
 
-        ELEVENLABS_VOICE_ID,
-
-      provider:
-
-        "ElevenLabs"
+        "/api/voice"
 
     });
 
@@ -1388,83 +1204,11 @@ app.get(
 
 );
 
-/* =========================================================
+// ======================================
 
-   404 API
+// START SERVER
 
-========================================================= */
-
-app.use(
-
-  "/api",
-
-  (req, res) => {
-
-    res.status(404).json({
-
-      error:
-
-        "API endpoint غير موجود."
-
-    });
-
-  }
-
-);
-
-/* =========================================================
-
-   FRONTEND FALLBACK
-
-========================================================= */
-
-if (frontendDir) {
-
-  app.get(
-
-    "*",
-
-    (req, res) => {
-
-      if (
-
-        req.path.startsWith("/api/")
-
-      ) {
-
-        return res.status(404).json({
-
-          error:
-
-            "API endpoint غير موجود."
-
-        });
-
-      }
-
-      return res.sendFile(
-
-        path.join(
-
-          frontendDir,
-
-          "index.html"
-
-        )
-
-      );
-
-    }
-
-  );
-
-}
-
-/* =========================================================
-
-   START SERVER
-
-========================================================= */
+// ======================================
 
 app.listen(
 
@@ -1474,81 +1218,7 @@ app.listen(
 
     console.log(
 
-      "======================================"
-
-    );
-
-    console.log(
-
-      "🚀 ALWAFER AI SERVER STARTED"
-
-    );
-
-    console.log(
-
-      `🌐 PORT: ${PORT}`
-
-    );
-
-    console.log(
-
-      `🤖 GEMINI: ${
-
-        GEMINI_API_KEY
-
-          ? "ON"
-
-          : "OFF"
-
-      }`
-
-    );
-
-    console.log(
-
-      `🧠 OPENROUTER: ${
-
-        OPENROUTER_API_KEY
-
-          ? "ON"
-
-          : "OFF"
-
-      }`
-
-    );
-
-    console.log(
-
-      `🎨 PIXAZO: ${
-
-        PIXAZO_API_KEY
-
-          ? "ON"
-
-          : "OFF"
-
-      }`
-
-    );
-
-    console.log(
-
-      `🔊 ELEVENLABS: ${
-
-        ELEVENLABS_API_KEY
-
-          ? "ON"
-
-          : "OFF"
-
-      }`
-
-    );
-
-    console.log(
-
-      "======================================"
+      `ZAKA AI Backend يعمل على المنفذ ${PORT}`
 
     );
 
