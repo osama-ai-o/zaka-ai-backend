@@ -99,88 +99,86 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    // =========================
-    // OPENROUTER
-    // =========================
+// =========================
+// OPENROUTER
+// =========================
 
-    if (selectedProvider === "openrouter") {
+if (selectedProvider === "openrouter") {
 
-      if (!OPENROUTER_API_KEY) {
-        return res.status(500).json({
-          error: "OPENROUTER_API_KEY غير موجود"
-        });
+  if (!OPENROUTER_API_KEY) {
+    return res.status(500).json({
+      error: "OPENROUTER_API_KEY غير موجود في Render"
+    });
+  }
+
+  const selectedModel = model || "openrouter/free";
+
+  try {
+
+    const response = await fetch(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+          "HTTP-Referer": "https://zaka-ai-backend-1.onrender.com",
+          "X-Title": "ZAKA AI"
+        },
+
+        body: JSON.stringify({
+          model: selectedModel,
+          messages: [
+            {
+              role: "user",
+              content: message
+            }
+          ]
+        })
       }
+    );
 
-      const selectedModel =
-        model || "openrouter/free";
+    const data = await response.json();
 
-      const response = await fetch(
-        "https://openrouter.ai/api/v1/chat/completions",
-        {
-          method: "POST",
+    console.log("OpenRouter status:", response.status);
+    console.log("OpenRouter response:", JSON.stringify(data));
 
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-            "HTTP-Referer": "https://zaka-ai-backend-1.onrender.com",
-            "X-Title": "ZAKA AI"
-          },
+    if (!response.ok) {
 
-          body: JSON.stringify({
-            model: selectedModel,
-
-            messages: [
-              {
-                role: "user",
-                content: message
-              }
-            ]
-          })
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        return res.status(response.status).json({
-          error:
-            data.error?.message ||
-            "OpenRouter API Error"
-        });
-      }
-
-      const answer =
-        data.choices?.[0]?.message?.content;
-
-      if (!answer) {
-        return res.status(502).json({
-          error: "OpenRouter لم يرجع ردًا"
-        });
-      }
-
-      return res.json({
-        answer,
-        provider: "openrouter",
-        model: selectedModel
+      return res.status(response.status).json({
+        error:
+          data?.error?.message ||
+          data?.error?.code ||
+          `OpenRouter HTTP ${response.status}`
       });
+
     }
 
-    return res.status(400).json({
-      error: "مزود الذكاء الاصطناعي غير معروف"
+    const answer =
+      data?.choices?.[0]?.message?.content;
+
+    if (!answer) {
+
+      return res.status(502).json({
+        error: "OpenRouter لم يرجع نصًا"
+      });
+
+    }
+
+    return res.json({
+      answer: answer,
+      provider: "openrouter",
+      model: selectedModel
     });
 
   } catch (error) {
 
-    console.error(error);
+    console.error("OpenRouter connection error:", error);
 
-    res.status(500).json({
-      error: "حدث خطأ داخلي في الخادم"
+    return res.status(500).json({
+      error: `خطأ في الاتصال بـ OpenRouter: ${error.message}`
     });
-  }
-});
 
-app.listen(PORT, () => {
-  console.log(
-    `ZAKA AI Backend يعمل على المنفذ ${PORT}`
-  );
-});
+  }
+}
