@@ -207,7 +207,18 @@ app.post("/api/chat", async (req, res) => {
     return res.status(500).json({
       error:
         error?.message ||
-        "{
+        "خطأ داخلي في الخادم"
+    });
+  }
+});
+
+// ================================
+// IMAGE GENERATION - PIXAZO
+// ================================
+
+app.post("/api/image", async (req, res) => {
+
+  try {
 
     const { prompt } = req.body;
 
@@ -224,36 +235,45 @@ app.post("/api/chat", async (req, res) => {
     }
 
     const response = await fetch(
-      "https://gateway.pixazo.ai/flux-1-schnell/v1/getDataBatch",
+      "https://gateway.pixazo.ai/flux-1-schnell/v1/getData",
       {
         method: "POST",
 
         headers: {
           "Content-Type": "application/json",
           "Cache-Control": "no-cache",
-          "Ocp-Apim-Subscription-Key": PIXAZO_API_KEY,
-          "X-Secret-Key": PIXAZO_API_KEY
+          "Ocp-Apim-Subscription-Key": PIXAZO_API_KEY
         },
 
         body: JSON.stringify({
           prompt: prompt.trim(),
           num_steps: 4,
-          width: 1024,
-          height: 1024
+          seed: 15,
+          height: 512,
+          width: 512
         })
       }
     );
 
-    const data = await response.json();
+    const text = await response.text();
 
     console.log(
       "Pixazo:",
       response.status,
-      JSON.stringify(data)
+      text
     );
 
-    if (!response.ok) {
+    let data;
 
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return res.status(response.status).json({
+        error: text || `Pixazo HTTP ${response.status}`
+      });
+    }
+
+    if (!response.ok) {
       return res.status(response.status).json({
         error:
           data?.message ||
@@ -262,33 +282,19 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    // إذا رجعت الصورة مباشرة
-    if (data?.output) {
+    const imageUrl = data?.output;
 
-      return res.json({
-        success: true,
-        imageUrl: data.output,
-        provider: "pixazo"
+    if (!imageUrl) {
+      return res.status(502).json({
+        error: "Pixazo لم يرجع رابط الصورة",
+        pixazo: data
       });
     }
 
-    // إذا رجع requestId ونحتاج نفحص الحالة
-    if (data?.requestId || data?.request_id) {
-
-      const requestId =
-        data.requestId || data.request_id;
-
-      return res.json({
-        success: true,
-        pending: true,
-        requestId: requestId,
-        provider: "pixazo"
-      });
-    }
-
-    return res.status(502).json({
-      error: "Pixazo لم يرجع رابط الصورة أو رقم الطلب",
-      pixazo: data
+    return res.json({
+      success: true,
+      imageUrl: imageUrl,
+      provider: "pixazo"
     });
 
   } catch (error) {
@@ -306,7 +312,6 @@ app.post("/api/chat", async (req, res) => {
   }
 
 });
-
 // ================================
 // START SERVER
 // ================================
