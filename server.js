@@ -26,7 +26,7 @@ const ELEVENLABS_API_KEY =
 
 
 // ======================================
-// DEFAULT MODEL
+// MODELS
 // ======================================
 
 const DEFAULT_MODEL =
@@ -34,20 +34,16 @@ const DEFAULT_MODEL =
 
 
 // ======================================
-// الصفحة الرئيسية
+// HOME
 // ======================================
 
 app.get("/", (req, res) => {
 
   res.json({
-
     status: "online",
-
     name: "ZAKA AI",
-
     message:
       "ZAKA AI Backend يعمل بنجاح 🚀"
-
   });
 
 });
@@ -74,10 +70,7 @@ app.post("/api/chat", async (req, res) => {
     ) {
 
       return res.status(400).json({
-
-        error:
-          "الرسالة فارغة"
-
+        error: "الرسالة فارغة"
       });
 
     }
@@ -95,18 +88,15 @@ app.post("/api/chat", async (req, res) => {
       if (!GEMINI_API_KEY) {
 
         return res.status(500).json({
-
           error:
             "GEMINI_API_KEY غير موجود في Render"
-
         });
 
       }
 
 
       const selectedModel =
-        model ||
-        DEFAULT_MODEL;
+        model || DEFAULT_MODEL;
 
 
       const url =
@@ -114,50 +104,42 @@ app.post("/api/chat", async (req, res) => {
 
 
       const response =
-        await fetch(
-          url,
-          {
+        await fetch(url, {
 
-            method: "POST",
+          method: "POST",
 
-            headers: {
+          headers: {
+            "Content-Type":
+              "application/json",
 
-              "Content-Type":
-                "application/json",
+            "x-goog-api-key":
+              GEMINI_API_KEY
+          },
 
-              "x-goog-api-key":
-                GEMINI_API_KEY
+          body:
+            JSON.stringify({
 
-            },
+              contents: [
 
-            body:
-              JSON.stringify({
+                {
 
-                contents: [
+                  role: "user",
 
-                  {
+                  parts: [
 
-                    role: "user",
+                    {
+                      text: message
+                    }
 
-                    parts: [
+                  ]
 
-                      {
+                }
 
-                        text:
-                          message
+              ]
 
-                      }
+            })
 
-                    ]
-
-                  }
-
-                ]
-
-              })
-
-          }
-        );
+        });
 
 
       const data =
@@ -170,7 +152,6 @@ app.post("/api/chat", async (req, res) => {
           "Gemini:",
           data
         );
-
 
         return res.status(
           response.status
@@ -213,8 +194,7 @@ app.post("/api/chat", async (req, res) => {
 
         answer,
 
-        provider:
-          "gemini",
+        provider: "gemini",
 
         model:
           selectedModel
@@ -285,8 +265,7 @@ app.post("/api/chat", async (req, res) => {
 
                   {
 
-                    role:
-                      "user",
+                    role: "user",
 
                     content:
                       message
@@ -307,13 +286,9 @@ app.post("/api/chat", async (req, res) => {
 
 
       console.log(
-
         "OpenRouter:",
-
         response.status,
-
         JSON.stringify(data)
-
       );
 
 
@@ -380,7 +355,6 @@ app.post("/api/chat", async (req, res) => {
       error
     );
 
-
     return res.status(500).json({
 
       error:
@@ -436,23 +410,11 @@ app.post("/api/image", async (req, res) => {
     }
 
 
-    let imageWidth = 512;
+    let imageWidth =
+      Number(width) || 512;
 
-    let imageHeight = 512;
-
-
-    if (
-      Number(width) &&
-      Number(height)
-    ) {
-
-      imageWidth =
-        Number(width);
-
-      imageHeight =
-        Number(height);
-
-    }
+    let imageHeight =
+      Number(height) || 512;
 
 
     const allowedSizes = [
@@ -468,12 +430,9 @@ app.post("/api/image", async (req, res) => {
 
     const validSize =
       allowedSizes.some(
-
         ([w, h]) =>
-
           w === imageWidth &&
           h === imageHeight
-
       );
 
 
@@ -514,11 +473,9 @@ app.post("/api/image", async (req, res) => {
               prompt:
                 prompt.trim(),
 
-              num_steps:
-                4,
+              num_steps: 4,
 
-              seed:
-                15,
+              seed: 15,
 
               width:
                 imageWidth,
@@ -538,13 +495,9 @@ app.post("/api/image", async (req, res) => {
 
 
     console.log(
-
       "Pixazo:",
-
       response.status,
-
       text
-
     );
 
 
@@ -608,8 +561,7 @@ app.post("/api/image", async (req, res) => {
 
     return res.json({
 
-      success:
-        true,
+      success: true,
 
       imageUrl,
 
@@ -628,11 +580,8 @@ app.post("/api/image", async (req, res) => {
   } catch (error) {
 
     console.error(
-
       "PIXAZO ERROR:",
-
       error
-
     );
 
 
@@ -689,43 +638,42 @@ app.post("/api/voice", async (req, res) => {
     }
 
 
+    // Voice ID موثق في مثال ElevenLabs الحالي
     const voiceId =
-      "EXAVITQu4vr4xnSDxMaL";
+      "JBFqnCBsd6RMkjVDRZzb";
+
+
+    const url =
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`;
 
 
     const response =
-      await fetch(
+      await fetch(url, {
 
-        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+        method: "POST",
 
-        {
+        headers: {
 
-          method: "POST",
+          "xi-api-key":
+            ELEVENLABS_API_KEY,
 
-          headers: {
+          "Content-Type":
+            "application/json"
 
-            "Content-Type":
-              "application/json",
+        },
 
-            "xi-api-key":
-              ELEVENLABS_API_KEY
+        body:
+          JSON.stringify({
 
-          },
+            text:
+              text.trim(),
 
-          body:
-            JSON.stringify({
+            model_id:
+              "eleven_multilingual_v2"
 
-              text:
-                text.trim(),
+          })
 
-              model_id:
-                "eleven_multilingual_v2"
-
-            })
-
-        }
-
-      );
+      });
 
 
     if (!response.ok) {
@@ -735,13 +683,9 @@ app.post("/api/voice", async (req, res) => {
 
 
       console.error(
-
         "ElevenLabs:",
-
         response.status,
-
         errorText
-
       );
 
 
@@ -750,7 +694,7 @@ app.post("/api/voice", async (req, res) => {
       ).json({
 
         error:
-          "فشل إنشاء الصوت من ElevenLabs"
+          `ElevenLabs HTTP ${response.status}: ${errorText}`
 
       });
 
@@ -759,31 +703,29 @@ app.post("/api/voice", async (req, res) => {
 
     const audioBuffer =
       Buffer.from(
-
         await response.arrayBuffer()
-
       );
 
 
     res.setHeader(
-
       "Content-Type",
-
       "audio/mpeg"
-
     );
 
 
     res.setHeader(
-
       "Content-Length",
-
       audioBuffer.length
-
     );
 
 
-    res.send(
+    res.setHeader(
+      "Cache-Control",
+      "no-cache"
+    );
+
+
+    return res.send(
       audioBuffer
     );
 
@@ -791,11 +733,8 @@ app.post("/api/voice", async (req, res) => {
   } catch (error) {
 
     console.error(
-
       "VOICE ERROR:",
-
       error
-
     );
 
 
@@ -813,7 +752,29 @@ app.post("/api/voice", async (req, res) => {
 
 
 // ======================================
-// تشغيل السيرفر
+// TEST VOICE
+// ======================================
+
+app.get("/api/voice-status", (req, res) => {
+
+  res.json({
+
+    voice:
+      "ElevenLabs",
+
+    configured:
+      Boolean(ELEVENLABS_API_KEY),
+
+    endpoint:
+      "/api/voice"
+
+  });
+
+});
+
+
+// ======================================
+// START SERVER
 // ======================================
 
 app.listen(
@@ -821,9 +782,7 @@ app.listen(
   () => {
 
     console.log(
-
       `ZAKA AI Backend يعمل على المنفذ ${PORT}`
-
     );
 
   }
