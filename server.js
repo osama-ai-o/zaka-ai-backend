@@ -235,17 +235,22 @@ app.post("/api/image", async (req, res) => {
     }
 
     const response = await fetch(
-      "https://gateway.pixazo.ai/flux/text-to-image",
+      "https://gateway.pixazo.ai/flux-1-schnell/v1/getDataBatch",
       {
         method: "POST",
 
         headers: {
           "Content-Type": "application/json",
-          "Ocp-Apim-Subscription-Key": PIXAZO_API_KEY
+          "Cache-Control": "no-cache",
+          "Ocp-Apim-Subscription-Key": PIXAZO_API_KEY,
+          "X-Secret-Key": PIXAZO_API_KEY
         },
 
         body: JSON.stringify({
-          prompt: prompt.trim()
+          prompt: prompt.trim(),
+          num_steps: 4,
+          width: 1024,
+          height: 1024
         })
       }
     );
@@ -262,36 +267,39 @@ app.post("/api/image", async (req, res) => {
 
       return res.status(response.status).json({
         error:
-          data?.error?.message ||
           data?.message ||
+          data?.error ||
           `Pixazo HTTP ${response.status}`
       });
     }
 
-    // Pixazo يعيد رابط الصورة في output
-    const imageUrl =
-      data?.output ||
-      data?.image_url ||
-      data?.url ||
-      data?.data?.output ||
-      data?.data?.image_url;
+    // إذا رجعت الصورة مباشرة
+    if (data?.output) {
 
-    if (!imageUrl) {
-
-      console.error(
-        "Pixazo لم يرجع رابط صورة:",
-        data
-      );
-
-      return res.status(502).json({
-        error: "Pixazo لم يرجع رابط الصورة"
+      return res.json({
+        success: true,
+        imageUrl: data.output,
+        provider: "pixazo"
       });
     }
 
-    return res.json({
-      success: true,
-      imageUrl: imageUrl,
-      provider: "pixazo"
+    // إذا رجع requestId ونحتاج نفحص الحالة
+    if (data?.requestId || data?.request_id) {
+
+      const requestId =
+        data.requestId || data.request_id;
+
+      return res.json({
+        success: true,
+        pending: true,
+        requestId: requestId,
+        provider: "pixazo"
+      });
+    }
+
+    return res.status(502).json({
+      error: "Pixazo لم يرجع رابط الصورة أو رقم الطلب",
+      pixazo: data
     });
 
   } catch (error) {
@@ -307,6 +315,7 @@ app.post("/api/image", async (req, res) => {
         "حدث خطأ أثناء إنشاء الصورة"
     });
   }
+
 });
 
 // ================================
