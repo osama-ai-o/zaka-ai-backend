@@ -15,6 +15,11 @@ const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 
+
+/* =========================
+   HOME
+========================= */
+
 app.get("/", (req, res) => {
   res.json({
     ok: true,
@@ -29,7 +34,12 @@ app.get("/", (req, res) => {
 
 app.post("/api/chat", async (req, res) => {
   try {
-    const { messages, provider, model } = req.body;
+
+    const {
+      messages,
+      provider,
+      model
+    } = req.body;
 
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({
@@ -37,12 +47,17 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    /* ---------- OPENROUTER ---------- */
+
+    /* =========================
+       OPENROUTER
+    ========================= */
 
     if (provider === "openrouter") {
+
       if (!OPENROUTER_API_KEY) {
         return res.status(500).json({
-          error: "OPENROUTER_API_KEY is missing"
+          error:
+            "OPENROUTER_API_KEY is missing"
         });
       }
 
@@ -53,176 +68,301 @@ app.post("/api/chat", async (req, res) => {
 
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-            "HTTP-Referer": "https://zaka-ai-backend-1.onrender.com",
-            "X-Title": "ALWAFER AI"
+
+            "Authorization":
+              `Bearer ${OPENROUTER_API_KEY}`,
+
+            "HTTP-Referer":
+              "https://zaka-ai-backend-1.onrender.com",
+
+            "X-Title":
+              "ALWAFER AI"
           },
 
           body: JSON.stringify({
-            model: model || "openai/gpt-oss-20b:free",
-            messages: messages.map((m) => ({
-              role: m.role,
-              content: m.content
-            }))
+
+            model:
+              model ||
+              "openrouter/free",
+
+            messages:
+              messages.map((m) => ({
+                role: m.role,
+                content: m.content
+              }))
+
           })
         }
       );
 
-      const data = await response.json();
+      const data =
+        await response.json();
+
 
       if (!response.ok) {
-        return res.status(response.status).json({
+
+        return res.status(
+          response.status
+        ).json({
+
           error:
             data?.error?.message ||
             "OpenRouter request failed",
+
           details: data
+
         });
       }
+
 
       const reply =
-        data?.choices?.[0]?.message?.content || "";
+        data?.choices?.[0]
+          ?.message?.content || "";
+
 
       if (!reply) {
+
         return res.status(500).json({
-          error: "OpenRouter returned an empty response",
+
+          error:
+            "OpenRouter returned an empty response",
+
           details: data
+
         });
       }
+
 
       return res.json({
         reply
       });
+
     }
 
 
-    /* ---------- GEMINI ---------- */
+    /* =========================
+       GEMINI
+    ========================= */
 
     if (!GEMINI_API_KEY) {
+
       return res.status(500).json({
-        error: "GEMINI_API_KEY is missing"
+
+        error:
+          "GEMINI_API_KEY is missing"
+
       });
     }
 
-    const contents = messages.map((m) => ({
-      role: m.role === "assistant" ? "model" : "user",
 
-      parts: [
+    const contents =
+      messages.map((m) => ({
+
+        role:
+          m.role === "assistant"
+            ? "model"
+            : "user",
+
+        parts: [
+          {
+            text: m.content
+          }
+        ]
+
+      }));
+
+
+    const response =
+      await fetch(
+
+        `https://generativelanguage.googleapis.com/v1beta/models/${model || GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+
         {
-          text: m.content
+
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+
+          body: JSON.stringify({
+            contents
+          })
+
         }
-      ]
-    }));
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model || GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
+      );
 
-        headers: {
-          "Content-Type": "application/json"
-        },
 
-        body: JSON.stringify({
-          contents
-        })
-      }
-    );
+    const data =
+      await response.json();
 
-    const data = await response.json();
 
     if (!response.ok) {
-      return res.status(response.status).json({
+
+      return res.status(
+        response.status
+      ).json({
+
         error:
           data?.error?.message ||
           "Gemini request failed",
+
         details: data
+
       });
+
     }
 
+
     const reply =
-      data?.candidates?.[0]?.content?.parts
+      data?.candidates?.[0]
+        ?.content?.parts
         ?.map((p) => p.text || "")
         .join("") || "";
 
+
     if (!reply) {
+
       return res.status(500).json({
-        error: "Gemini returned an empty response",
+
+        error:
+          "Gemini returned an empty response",
+
         details: data
+
       });
+
     }
+
 
     return res.json({
       reply
     });
 
+
   } catch (error) {
 
-    console.error("CHAT ERROR:", error);
+    console.error(
+      "CHAT ERROR:",
+      error
+    );
 
     return res.status(500).json({
-      error: error.message || "Server error"
+
+      error:
+        error.message ||
+        "Server error"
+
     });
+
   }
 });
 
 
 /* =========================
-   IMAGE
+   IMAGE GENERATION
 ========================= */
 
 app.post("/api/image", async (req, res) => {
+
   try {
 
     const {
+
       prompt,
+
       model = "flux",
+
       width = 512,
+
       height = 512
+
     } = req.body;
 
+
     if (!PIXAZO_API_KEY) {
+
       return res.status(500).json({
-        error: "PIXAZO_API_KEY is missing"
+
+        error:
+          "PIXAZO_API_KEY is missing"
+
       });
+
     }
+
 
     if (!prompt) {
+
       return res.status(400).json({
-        error: "prompt is required"
+
+        error:
+          "prompt is required"
+
       });
+
     }
+
 
     const allowedSizes = [
+
       [512, 512],
+
       [512, 896],
+
       [896, 512]
+
     ];
 
-    const validSize = allowedSizes.some(
-      ([w, h]) => w === width && h === height
-    );
+
+    const validSize =
+      allowedSizes.some(
+
+        ([w, h]) =>
+          w === width &&
+          h === height
+
+      );
+
 
     if (!validSize) {
+
       return res.status(400).json({
-        error: "Invalid image size"
+
+        error:
+          "Invalid image size"
+
       });
+
     }
 
+
     let endpoint;
+
     let body;
+
+
+    /* =========================
+       SDXL
+    ========================= */
 
     if (model === "sdxl") {
 
       endpoint =
         "https://gateway.pixazo.ai/getImage/v1/getSDXLImage";
 
+
       body = {
+
         prompt,
 
         negative_prompt:
           "blurry, low quality, distorted, watermark",
 
         height,
+
         width,
 
         num_steps: 20,
@@ -230,15 +370,28 @@ app.post("/api/image", async (req, res) => {
         guidance_scale: 5,
 
         seed:
-          Math.floor(Math.random() * 1000000)
+          Math.floor(
+            Math.random() *
+            1000000
+          )
+
       };
 
-    } else {
+    }
+
+
+    /* =========================
+       FLUX
+    ========================= */
+
+    else {
 
       endpoint =
         "https://gateway.pixazo.ai/flux-1-schnell/v1/getData";
 
+
       body = {
+
         prompt,
 
         num_steps: 4,
@@ -246,139 +399,215 @@ app.post("/api/image", async (req, res) => {
         seed: 15,
 
         width,
+
         height
+
       };
+
     }
 
-    const response = await fetch(
-      endpoint,
-      {
-        method: "POST",
 
-        headers: {
-          "Content-Type": "application/json",
-          "Ocp-Apim-Subscription-Key":
-            PIXAZO_API_KEY
-        },
+    const response =
+      await fetch(
 
-        body: JSON.stringify(body)
-      }
-    );
+        endpoint,
 
-    const data = await response.json();
+        {
+
+          method: "POST",
+
+          headers: {
+
+            "Content-Type":
+              "application/json",
+
+            "Ocp-Apim-Subscription-Key":
+              PIXAZO_API_KEY
+
+          },
+
+          body:
+            JSON.stringify(body)
+
+        }
+
+      );
+
+
+    const data =
+      await response.json();
+
 
     if (!response.ok) {
-      return res.status(response.status).json({
+
+      return res.status(
+        response.status
+      ).json({
+
         error:
           data?.error?.message ||
           data?.message ||
           "Pixazo image request failed",
 
         details: data
+
       });
+
     }
 
+
     const imageUrl =
+
       data?.imageUrl ||
+
       data?.output ||
+
       data?.image?.url ||
+
       data?.data?.imageUrl ||
+
       data?.data?.output;
 
+
     if (!imageUrl) {
+
       return res.status(500).json({
+
         error:
           "Pixazo did not return an image URL",
 
         details: data
+
       });
+
     }
 
+
     return res.json({
+
       imageUrl
+
     });
+
 
   } catch (error) {
 
-    console.error("IMAGE ERROR:", error);
+    console.error(
+      "IMAGE ERROR:",
+      error
+    );
 
     return res.status(500).json({
+
       error:
         error.message ||
         "Server error"
+
     });
+
   }
+
 });
 
 
 /* =========================
-   VOICE
+   ELEVENLABS VOICE
 ========================= */
 
 app.post("/api/voice", async (req, res) => {
 
   try {
 
-    const { text } = req.body;
+    const { text } =
+      req.body;
+
 
     if (!ELEVENLABS_API_KEY) {
+
       return res.status(500).json({
+
         error:
           "ELEVENLABS_API_KEY is missing"
+
       });
+
     }
+
 
     const voiceId =
       "JBFqnCBsd6RMkjVDRZzb";
 
-    const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
-      {
-        method: "POST",
 
-        headers: {
-          "Content-Type": "application/json",
+    const response =
+      await fetch(
 
-          "xi-api-key":
-            ELEVENLABS_API_KEY
-        },
+        `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
 
-        body: JSON.stringify({
+        {
 
-          text,
+          method: "POST",
 
-          model_id:
-            "eleven_multilingual_v2",
+          headers: {
 
-          output_format:
-            "mp3_44100_128"
-        })
-      }
-    );
+            "Content-Type":
+              "application/json",
+
+            "xi-api-key":
+              ELEVENLABS_API_KEY
+
+          },
+
+          body:
+            JSON.stringify({
+
+              text,
+
+              model_id:
+                "eleven_multilingual_v2",
+
+              output_format:
+                "mp3_44100_128"
+
+            })
+
+        }
+
+      );
+
 
     if (!response.ok) {
 
       const errorText =
         await response.text();
 
-      return res.status(response.status).json({
+
+      return res.status(
+        response.status
+      ).json({
+
         error:
           errorText ||
           "ElevenLabs request failed"
+
       });
+
     }
+
 
     const audioBuffer =
       await response.arrayBuffer();
+
 
     res.setHeader(
       "Content-Type",
       "audio/mpeg"
     );
 
+
     res.send(
       Buffer.from(audioBuffer)
     );
+
 
   } catch (error) {
 
@@ -387,12 +616,17 @@ app.post("/api/voice", async (req, res) => {
       error
     );
 
+
     return res.status(500).json({
+
       error:
         error.message ||
         "Server error"
+
     });
+
   }
+
 });
 
 
@@ -400,24 +634,34 @@ app.post("/api/voice", async (req, res) => {
    VOICE STATUS
 ========================= */
 
-app.get("/api/voice-status", (req, res) => {
+app.get(
+  "/api/voice-status",
+  (req, res) => {
 
-  res.json({
-    configured:
-      Boolean(ELEVENLABS_API_KEY)
-  });
+    res.json({
 
-});
+      configured:
+        Boolean(
+          ELEVENLABS_API_KEY
+        )
+
+    });
+
+  }
+);
 
 
 /* =========================
    START SERVER
 ========================= */
 
-app.listen(PORT, () => {
+app.listen(
+  PORT,
+  () => {
 
-  console.log(
-    `ALWAFER AI backend running on port ${PORT}`
-  );
+    console.log(
+      `ALWAFER AI backend running on port ${PORT}`
+    );
 
-});
+  }
+);
