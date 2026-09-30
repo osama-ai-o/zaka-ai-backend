@@ -207,18 +207,7 @@ app.post("/api/chat", async (req, res) => {
     return res.status(500).json({
       error:
         error?.message ||
-        "خطأ داخلي في الخادم"
-    });
-  }
-});
-
-// ================================
-// IMAGE GENERATION - PIXAZO
-// ================================
-
-app.post("/api/image", async (req, res) => {
-
-  try {
+        "{
 
     const { prompt } = req.body;
 
