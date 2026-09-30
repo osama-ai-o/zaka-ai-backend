@@ -194,7 +194,8 @@ app.post("/api/chat", async (req, res) => {
 
         answer,
 
-        provider: "gemini",
+        provider:
+          "gemini",
 
         model:
           selectedModel
@@ -370,6 +371,7 @@ app.post("/api/chat", async (req, res) => {
 
 // ======================================
 // IMAGE - PIXAZO
+// FLUX SCHNELL + SDXL
 // ======================================
 
 app.post("/api/image", async (req, res) => {
@@ -379,7 +381,8 @@ app.post("/api/image", async (req, res) => {
     const {
       prompt,
       width,
-      height
+      height,
+      model
     } = req.body;
 
 
@@ -410,169 +413,390 @@ app.post("/api/image", async (req, res) => {
     }
 
 
-    let imageWidth =
-      Number(width) || 512;
+    // ==================================
+    // اختيار نموذج الصورة
+    // ==================================
 
-    let imageHeight =
-      Number(height) || 512;
-
-
-    const allowedSizes = [
-
-      [512, 512],
-
-      [512, 896],
-
-      [896, 512]
-
-    ];
+    const selectedModel =
+      model || "flux";
 
 
-    const validSize =
-      allowedSizes.some(
-        ([w, h]) =>
-          w === imageWidth &&
-          h === imageHeight
+    // ==================================
+    // FLUX SCHNELL
+    // ==================================
+
+    if (
+      selectedModel === "flux"
+    ) {
+
+      let imageWidth =
+        Number(width) || 512;
+
+      let imageHeight =
+        Number(height) || 512;
+
+
+      const allowedSizes = [
+
+        [512, 512],
+
+        [512, 896],
+
+        [896, 512]
+
+      ];
+
+
+      const validSize =
+        allowedSizes.some(
+          ([w, h]) =>
+            w === imageWidth &&
+            h === imageHeight
+        );
+
+
+      if (!validSize) {
+
+        imageWidth = 512;
+
+        imageHeight = 512;
+
+      }
+
+
+      const response =
+        await fetch(
+
+          "https://gateway.pixazo.ai/flux-1-schnell/v1/getData",
+
+          {
+
+            method: "POST",
+
+            headers: {
+
+              "Content-Type":
+                "application/json",
+
+              "Cache-Control":
+                "no-cache",
+
+              "Ocp-Apim-Subscription-Key":
+                PIXAZO_API_KEY
+
+            },
+
+            body:
+              JSON.stringify({
+
+                prompt:
+                  prompt.trim(),
+
+                num_steps:
+                  4,
+
+                seed:
+                  15,
+
+                width:
+                  imageWidth,
+
+                height:
+                  imageHeight
+
+              })
+
+          }
+
+        );
+
+
+      const text =
+        await response.text();
+
+
+      console.log(
+        "Pixazo Flux:",
+        response.status,
+        text
       );
 
 
-    if (!validSize) {
+      let data;
 
-      imageWidth = 512;
 
-      imageHeight = 512;
+      try {
+
+        data =
+          JSON.parse(text);
+
+      } catch {
+
+        return res.status(
+          response.status
+        ).json({
+
+          error:
+            text ||
+            `Pixazo Flux HTTP ${response.status}`
+
+        });
+
+      }
+
+
+      if (!response.ok) {
+
+        return res.status(
+          response.status
+        ).json({
+
+          error:
+            data?.message ||
+            data?.error ||
+            `Pixazo Flux HTTP ${response.status}`
+
+        });
+
+      }
+
+
+      const imageUrl =
+        data?.output;
+
+
+      if (!imageUrl) {
+
+        return res.status(502).json({
+
+          error:
+            "Pixazo Flux لم يرجع رابط الصورة",
+
+          pixazo:
+            data
+
+        });
+
+      }
+
+
+      return res.json({
+
+        success:
+          true,
+
+        imageUrl,
+
+        provider:
+          "pixazo",
+
+        model:
+          "flux",
+
+        width:
+          imageWidth,
+
+        height:
+          imageHeight
+
+      });
 
     }
 
 
-    const response =
-      await fetch(
+    // ==================================
+    // SDXL
+    // ==================================
 
-        "https://gateway.pixazo.ai/flux-1-schnell/v1/getData",
+    if (
+      selectedModel === "sdxl"
+    ) {
 
-        {
+      let imageWidth =
+        Number(width) || 1024;
 
-          method: "POST",
+      let imageHeight =
+        Number(height) || 1024;
 
-          headers: {
 
-            "Content-Type":
-              "application/json",
+      // SDXL يدعم من 256 إلى 2048
+      if (
+        imageWidth < 256 ||
+        imageWidth > 2048
+      ) {
 
-            "Cache-Control":
-              "no-cache",
+        imageWidth = 1024;
 
-            "Ocp-Apim-Subscription-Key":
-              PIXAZO_API_KEY
+      }
 
-          },
 
-          body:
-            JSON.stringify({
+      if (
+        imageHeight < 256 ||
+        imageHeight > 2048
+      ) {
 
-              prompt:
-                prompt.trim(),
+        imageHeight = 1024;
 
-              num_steps: 4,
+      }
 
-              seed: 15,
 
-              width:
-                imageWidth,
+      const response =
+        await fetch(
 
-              height:
-                imageHeight
+          "https://gateway.pixazo.ai/getImage/v1/getSDXLImage",
 
-            })
+          {
 
-        }
+            method: "POST",
 
+            headers: {
+
+              "Content-Type":
+                "application/json",
+
+              "Cache-Control":
+                "no-cache",
+
+              "Ocp-Apim-Subscription-Key":
+                PIXAZO_API_KEY
+
+            },
+
+            body:
+              JSON.stringify({
+
+                prompt:
+                  prompt.trim(),
+
+                negative_prompt:
+                  "blurry, low quality, distorted, watermark",
+
+                height:
+                  imageHeight,
+
+                width:
+                  imageWidth,
+
+                num_steps:
+                  20,
+
+                guidance_scale:
+                  5,
+
+                seed:
+                  Math.floor(
+                    Math.random() * 1000000000
+                  )
+
+              })
+
+          }
+
+        );
+
+
+      const text =
+        await response.text();
+
+
+      console.log(
+        "Pixazo SDXL:",
+        response.status,
+        text
       );
 
 
-    const text =
-      await response.text();
+      let data;
 
 
-    console.log(
-      "Pixazo:",
-      response.status,
-      text
-    );
+      try {
+
+        data =
+          JSON.parse(text);
+
+      } catch {
+
+        return res.status(
+          response.status
+        ).json({
+
+          error:
+            text ||
+            `Pixazo SDXL HTTP ${response.status}`
+
+        });
+
+      }
 
 
-    let data;
+      if (!response.ok) {
+
+        return res.status(
+          response.status
+        ).json({
+
+          error:
+            data?.message ||
+            data?.error ||
+            `Pixazo SDXL HTTP ${response.status}`
+
+        });
+
+      }
 
 
-    try {
+      const imageUrl =
+        data?.imageUrl ||
+        data?.output;
 
-      data =
-        JSON.parse(text);
 
-    } catch {
+      if (!imageUrl) {
 
-      return res.status(
-        response.status
-      ).json({
+        return res.status(502).json({
 
-        error:
-          text ||
-          `Pixazo HTTP ${response.status}`
+          error:
+            "Pixazo SDXL لم يرجع رابط الصورة",
+
+          pixazo:
+            data
+
+        });
+
+      }
+
+
+      return res.json({
+
+        success:
+          true,
+
+        imageUrl,
+
+        provider:
+          "pixazo",
+
+        model:
+          "sdxl",
+
+        width:
+          imageWidth,
+
+        height:
+          imageHeight
 
       });
 
     }
 
 
-    if (!response.ok) {
+    // ==================================
+    // نموذج غير معروف
+    // ==================================
 
-      return res.status(
-        response.status
-      ).json({
+    return res.status(400).json({
 
-        error:
-          data?.message ||
-          data?.error ||
-          `Pixazo HTTP ${response.status}`
-
-      });
-
-    }
-
-
-    const imageUrl =
-      data?.output;
-
-
-    if (!imageUrl) {
-
-      return res.status(502).json({
-
-        error:
-          "Pixazo لم يرجع رابط الصورة",
-
-        pixazo:
-          data
-
-      });
-
-    }
-
-
-    return res.json({
-
-      success: true,
-
-      imageUrl,
-
-      provider:
-        "pixazo",
-
-      width:
-        imageWidth,
-
-      height:
-        imageHeight
+      error:
+        "نموذج الصورة غير معروف. استخدم flux أو sdxl."
 
     });
 
@@ -638,7 +862,6 @@ app.post("/api/voice", async (req, res) => {
     }
 
 
-    // Voice ID موثق في مثال ElevenLabs الحالي
     const voiceId =
       "JBFqnCBsd6RMkjVDRZzb";
 
@@ -755,22 +978,27 @@ app.post("/api/voice", async (req, res) => {
 // TEST VOICE
 // ======================================
 
-app.get("/api/voice-status", (req, res) => {
+app.get(
+  "/api/voice-status",
+  (req, res) => {
 
-  res.json({
+    res.json({
 
-    voice:
-      "ElevenLabs",
+      voice:
+        "ElevenLabs",
 
-    configured:
-      Boolean(ELEVENLABS_API_KEY),
+      configured:
+        Boolean(
+          ELEVENLABS_API_KEY
+        ),
 
-    endpoint:
-      "/api/voice"
+      endpoint:
+        "/api/voice"
 
-  });
+    });
 
-});
+  }
+);
 
 
 // ======================================
