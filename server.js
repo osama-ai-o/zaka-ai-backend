@@ -14,21 +14,15 @@ const app = express();
 
 const PORT = process.env.PORT || 3000;
 
-// ================================
-
-// إعدادات السيرفر
-
-// ================================
-
 app.use(cors());
 
 app.use(express.json({ limit: '2mb' }));
 
-// ================================
+// ===============================
 
 // الصفحة الرئيسية
 
-// ================================
+// ===============================
 
 app.get('/', (req, res) => {
 
@@ -36,11 +30,11 @@ app.get('/', (req, res) => {
 
 });
 
-// ================================
+// ===============================
 
-// فحص حالة السيرفر
+// فحص السيرفر والمفاتيح
 
-// ================================
+// ===============================
 
 app.get('/api/health', (req, res) => {
 
@@ -58,17 +52,21 @@ app.get('/api/health', (req, res) => {
 
 });
 
-// ============================================================
+// ===============================
 
-// GEMINI
+// Gemini
 
-// ============================================================
+// ===============================
 
 async function askGemini(messages) {
 
     if (!process.env.GEMINI_API_KEY) {
 
-        throw new Error('GEMINI_API_KEY غير موجود في Render');
+        throw new Error(
+
+            'GEMINI_API_KEY غير موجود في Render'
+
+        );
 
     }
 
@@ -80,19 +78,29 @@ async function askGemini(messages) {
 
     const modelName =
 
-        process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+        process.env.GEMINI_MODEL ||
 
-    const generativeModel = genAI.getGenerativeModel({
+        'gemini-3.8-flash';
 
-        model: modelName
+    const generativeModel =
 
-    });
+        genAI.getGenerativeModel({
 
-    // نحول رسائل الموقع إلى صيغة Gemini
+            model: modelName
+
+        });
 
     const history = [];
 
-    for (let i = 0; i < messages.length - 1; i++) {
+    for (
+
+        let i = 0;
+
+        i < messages.length - 1;
+
+        i++
+
+    ) {
 
         const msg = messages[i];
 
@@ -100,7 +108,13 @@ async function askGemini(messages) {
 
         history.push({
 
-            role: msg.role === 'assistant' ? 'model' : 'user',
+            role:
+
+                msg.role === 'assistant'
+
+                    ? 'model'
+
+                    : 'user',
 
             parts: [
 
@@ -120,89 +134,107 @@ async function askGemini(messages) {
 
         messages[messages.length - 1]?.content || '';
 
-    const chat = generativeModel.startChat({
+    const chat =
 
-        history
+        generativeModel.startChat({
 
-    });
+            history
 
-    const result = await chat.sendMessage(
+        });
 
-        String(lastMessage)
+    const result =
 
-    );
+        await chat.sendMessage(
 
-    const response = await result.response;
+            String(lastMessage)
+
+        );
+
+    const response =
+
+        await result.response;
 
     return response.text();
 
 }
 
-// ============================================================
+// ===============================
 
-// OPENROUTER
+// OpenRouter
 
-// ============================================================
+// ===============================
 
 async function askOpenRouter(messages) {
 
     if (!process.env.OPENROUTER_API_KEY) {
 
-        throw new Error('OPENROUTER_API_KEY غير موجود في Render');
+        throw new Error(
+
+            'OPENROUTER_API_KEY غير موجود في Render'
+
+        );
 
     }
 
-    // هذا يجعل OpenRouter يختار نموذجًا مجانيًا متاحًا
+    const openRouterModel =
 
-    const openRouterModel = 'openrouter/free';
+        'openrouter/free';
 
-    const response = await axios.post(
+    const response =
 
-        'https://openrouter.ai/api/v1/chat/completions',
+        await axios.post(
 
-        {
+            'https://openrouter.ai/api/v1/chat/completions',
 
-            model: openRouterModel,
+            {
 
-            messages: messages.map(msg => ({
+                model: openRouterModel,
 
-                role:
+                messages: messages.map(msg => ({
 
-                    msg.role === 'assistant'
+                    role:
 
-                        ? 'assistant'
+                        msg.role === 'assistant'
 
-                        : 'user',
+                            ? 'assistant'
 
-                content: String(msg.content || '')
+                            : 'user',
 
-            }))
+                    content:
 
-        },
+                        String(msg.content || '')
 
-        {
-
-            headers: {
-
-                Authorization:
-
-                    `Bearer ${process.env.OPENROUTER_API_KEY}`,
-
-                'Content-Type': 'application/json',
-
-                'HTTP-Referer':
-
-                    'https://zaka-ai-backend-1.onrender.com',
-
-                'X-Title': 'Alwafer AI'
+                }))
 
             },
 
-            timeout: 60000
+            {
 
-        }
+                headers: {
 
-    );
+                    Authorization:
+
+                        `Bearer ${process.env.OPENROUTER_API_KEY}`,
+
+                    'Content-Type':
+
+                        'application/json',
+
+                    'HTTP-Referer':
+
+                        'https://zaka-ai-backend-1.onrender.com',
+
+                    'X-Title':
+
+                        'Alwafer AI'
+
+                },
+
+                timeout: 60000
+
+            }
+
+        );
 
     const reply =
 
@@ -222,11 +254,11 @@ async function askOpenRouter(messages) {
 
 }
 
-// ============================================================
+// ===============================
 
-// CHAT API
+// المحادثة
 
-// ============================================================
+// ===============================
 
 app.post('/api/chat', async (req, res) => {
 
@@ -242,8 +274,6 @@ app.post('/api/chat', async (req, res) => {
 
         } = req.body;
 
-        // التأكد من وجود الرسائل
-
         if (
 
             !Array.isArray(messages) ||
@@ -254,7 +284,9 @@ app.post('/api/chat', async (req, res) => {
 
             return res.status(400).json({
 
-                error: 'الرسائل غير موجودة'
+                error:
+
+                    'الرسائل غير موجودة'
 
             });
 
@@ -276,11 +308,11 @@ app.post('/api/chat', async (req, res) => {
 
         );
 
-        // ==================================================
+        // ===========================
 
-        // المستخدم اختار Gemini
+        // Gemini
 
-        // ==================================================
+        // ===========================
 
         if (
 
@@ -292,15 +324,23 @@ app.post('/api/chat', async (req, res) => {
 
             try {
 
-                const reply = await askGemini(messages);
+                const reply =
 
-                console.log('✅ Gemini response');
+                    await askGemini(messages);
+
+                console.log(
+
+                    '✅ Gemini response'
+
+                );
 
                 return res.json({
 
                     reply,
 
-                    provider: 'gemini',
+                    provider:
+
+                        'gemini',
 
                     model:
 
@@ -334,8 +374,6 @@ app.post('/api/chat', async (req, res) => {
 
                 );
 
-                // إذا كانت المشكلة حصة / 429
-
                 const isQuotaError =
 
                     geminiStatus === 429 ||
@@ -352,7 +390,17 @@ app.post('/api/chat', async (req, res) => {
 
                         .toLowerCase()
 
-                        .includes('resource_exhausted');
+                        .includes(
+
+                            'resource_exhausted'
+
+                        );
+
+                // ===========================
+
+                // Gemini 429 → OpenRouter
+
+                // ===========================
 
                 if (isQuotaError) {
 
@@ -366,7 +414,11 @@ app.post('/api/chat', async (req, res) => {
 
                         const reply =
 
-                            await askOpenRouter(messages);
+                            await askOpenRouter(
+
+                                messages
+
+                            );
 
                         console.log(
 
@@ -378,23 +430,39 @@ app.post('/api/chat', async (req, res) => {
 
                             reply,
 
-                            provider: 'openrouter',
+                            provider:
 
-                            model: 'openrouter/free',
+                                'openrouter',
 
-                            fallback: true
+                            model:
+
+                                'openrouter/free',
+
+                            fallback:
+
+                                true
 
                         });
 
-                    } catch (openRouterError) {
+                    } catch (
+
+                        openRouterError
+
+                    ) {
 
                         console.error(
 
                             '❌ OpenRouter fallback ERROR:',
 
-                            openRouterError?.response?.data ||
+                            openRouterError
 
-                            openRouterError?.message
+                                ?.response
+
+                                ?.data ||
+
+                            openRouterError
+
+                                ?.message
 
                         );
 
@@ -410,17 +478,21 @@ app.post('/api/chat', async (req, res) => {
 
                             openRouterError:
 
-                                openRouterError?.response?.data ||
+                                openRouterError
 
-                                openRouterError?.message
+                                    ?.response
+
+                                    ?.data ||
+
+                                openRouterError
+
+                                    ?.message
 
                         });
 
                     }
 
                 }
-
-                // خطأ Gemini غير متعلق بالحصة
 
                 return res.status(500).json({
 
@@ -438,17 +510,21 @@ app.post('/api/chat', async (req, res) => {
 
         }
 
-        // ==================================================
+        // ===========================
 
-        // المستخدم اختار OpenRouter
+        // OpenRouter مباشرة
 
-        // ==================================================
+        // ===========================
 
         try {
 
             const reply =
 
-                await askOpenRouter(messages);
+                await askOpenRouter(
+
+                    messages
+
+                );
 
             console.log(
 
@@ -460,21 +536,35 @@ app.post('/api/chat', async (req, res) => {
 
                 reply,
 
-                provider: 'openrouter',
+                provider:
 
-                model: 'openrouter/free'
+                    'openrouter',
+
+                model:
+
+                    'openrouter/free'
 
             });
 
-        } catch (openRouterError) {
+        } catch (
+
+            openRouterError
+
+        ) {
 
             console.error(
 
                 '❌ OpenRouter ERROR:',
 
-                openRouterError?.response?.data ||
+                openRouterError
 
-                openRouterError?.message
+                    ?.response
+
+                    ?.data ||
+
+                openRouterError
+
+                    ?.message
 
             );
 
@@ -486,9 +576,15 @@ app.post('/api/chat', async (req, res) => {
 
                 details:
 
-                    openRouterError?.response?.data ||
+                    openRouterError
 
-                    openRouterError?.message
+                        ?.response
+
+                        ?.data ||
+
+                    openRouterError
+
+                        ?.message
 
             });
 
@@ -524,11 +620,11 @@ app.post('/api/chat', async (req, res) => {
 
 });
 
-// ============================================================
+// ===============================
 
-// IMAGE API
+// توليد الصور
 
-// ============================================================
+// ===============================
 
 app.post('/api/image', async (req, res) => {
 
@@ -542,11 +638,19 @@ app.post('/api/image', async (req, res) => {
 
     } = req.body;
 
-    if (!prompt || !String(prompt).trim()) {
+    if (
+
+        !prompt ||
+
+        !String(prompt).trim()
+
+    ) {
 
         return res.status(400).json({
 
-            error: 'وصف الصورة فارغ'
+            error:
+
+                'وصف الصورة فارغ'
 
         });
 
@@ -566,11 +670,17 @@ app.post('/api/image', async (req, res) => {
 
             `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true`;
 
-        await axios.get(imageUrl, {
+        await axios.get(
 
-            timeout: 60000
+            imageUrl,
 
-        });
+            {
+
+                timeout: 60000
+
+            }
+
+        );
 
         return res.json({
 
@@ -602,21 +712,29 @@ app.post('/api/image', async (req, res) => {
 
 });
 
-// ============================================================
+// ===============================
 
-// VOICE API
+// الصوت
 
-// ============================================================
+// ===============================
 
 app.post('/api/voice', async (req, res) => {
 
     const { text } = req.body;
 
-    if (!text || !String(text).trim()) {
+    if (
+
+        !text ||
+
+        !String(text).trim()
+
+    ) {
 
         return res.status(400).json({
 
-            error: 'النص فارغ'
+            error:
+
+                'النص فارغ'
 
         });
 
@@ -646,13 +764,21 @@ app.post('/api/voice', async (req, res) => {
 
         const audioResponse =
 
-            await axios.get(url, {
+            await axios.get(
 
-                responseType: 'arraybuffer',
+                url,
 
-                timeout: 30000
+                {
 
-            });
+                    responseType:
+
+                        'arraybuffer',
+
+                    timeout: 30000
+
+                }
+
+            );
 
         res.set(
 
@@ -690,11 +816,11 @@ app.post('/api/voice', async (req, res) => {
 
 });
 
-// ============================================================
+// ===============================
 
 // تشغيل السيرفر
 
-// ============================================================
+// ===============================
 
 app.listen(PORT, () => {
 
