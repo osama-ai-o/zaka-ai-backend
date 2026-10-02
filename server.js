@@ -16,9 +16,7 @@ dotenv.config();
 
 const app = express();
 
-const PORT =
-
-    process.env.PORT || 10000;
+const PORT = process.env.PORT || 10000;
 
 app.use(
 
@@ -52,15 +50,17 @@ app.use(
 
 );
 
-const upload =
+const upload = multer({
 
-    multer({
+    dest: "/tmp/alwafer/"
 
-        dest: "/tmp/alwafer/"
+});
 
-    });
+/* =========================================================
 
-/* ENV */
+   ENV
+
+========================================================= */
 
 const OPENAI_API_KEY =
 
@@ -86,7 +86,13 @@ const GEMINI_MODEL =
 
     process.env.GEMINI_MODEL ||
 
-    "gemini-3.6-flash";
+    "gemini-3.8-flash";
+
+const GEMINI_IMAGE_MODEL =
+
+    process.env.GEMINI_IMAGE_MODEL ||
+
+    "gemini-3.1-flash-image";
 
 const OPENROUTER_API_KEY =
 
@@ -96,11 +102,29 @@ const OPENROUTER_MODEL =
 
     process.env.OPENROUTER_MODEL ||
 
-    "openai/gpt-5.2";
+    "";
+
+const OPENROUTER_IMAGE_MODEL =
+
+    process.env.OPENROUTER_IMAGE_MODEL ||
+
+    "";
 
 const PIXAZO_API_KEY =
 
     process.env.PIXAZO_API_KEY || "";
+
+const PIXAZO_IMAGE_MODEL =
+
+    process.env.PIXAZO_IMAGE_MODEL ||
+
+    "flux";
+
+const PIXAZO_IMAGE_ENDPOINT =
+
+    process.env.PIXAZO_IMAGE_ENDPOINT ||
+
+    "";
 
 const ELEVENLABS_API_KEY =
 
@@ -112,13 +136,21 @@ const ELEVENLABS_VOICE_ID =
 
     "21m00Tcm4TlvDq8ikWAM";
 
-/* HELPERS */
+const ELEVENLABS_IMAGE_MODEL_ID =
+
+    process.env.ELEVENLABS_IMAGE_MODEL_ID ||
+
+    "";
+
+/* =========================================================
+
+   HELPERS
+
+========================================================= */
 
 function apiError(error) {
 
-    const data =
-
-        error?.response?.data;
+    const data = error?.response?.data;
 
     if (typeof data === "string") {
 
@@ -126,13 +158,25 @@ function apiError(error) {
 
     }
 
+    if (data?.error?.message) {
+
+        return data.error.message;
+
+    }
+
+    if (typeof data?.error === "string") {
+
+        return data.error;
+
+    }
+
+    if (data?.message) {
+
+        return data.message;
+
+    }
+
     return (
-
-        data?.error?.message ||
-
-        data?.error ||
-
-        data?.message ||
 
         error?.message ||
 
@@ -154,33 +198,91 @@ function cleanHistory(history) {
 
         .slice(-20)
 
-        .filter(item =>
+        .filter(
 
-            item &&
+            item =>
 
-            typeof item.content === "string" &&
+                item &&
 
-            (
+                typeof item.content === "string" &&
 
-                item.role === "user" ||
+                (
 
-                item.role === "assistant"
+                    item.role === "user" ||
 
-            )
+                    item.role === "assistant"
+
+                )
 
         );
 
 }
 
-/* ROOT */
+function aspectToOpenAISize(aspect) {
 
-app.get("/", (req,res) => {
+    const sizes = {
+
+        "1:1": "1024x1024",
+
+        "16:9": "1536x1024",
+
+        "9:16": "1024x1536",
+
+        "4:3": "1536x1024",
+
+        "3:4": "1024x1536",
+
+        "3:2": "1536x1024",
+
+        "2:3": "1024x1536"
+
+    };
+
+    return (
+
+        sizes[aspect] ||
+
+        "1024x1024"
+
+    );
+
+}
+
+function normalizeResolution(value) {
+
+    const allowed = [
+
+        "512",
+
+        "1K",
+
+        "2K",
+
+        "4K"
+
+    ];
+
+    return allowed.includes(value)
+
+        ? value
+
+        : "1K";
+
+}
+
+/* =========================================================
+
+   ROOT
+
+========================================================= */
+
+app.get("/", (req, res) => {
 
     res.json({
 
         name: "ALWAFER AI",
 
-        version: "8.0.0",
+        version: "9.0.0",
 
         status: "online"
 
@@ -188,13 +290,17 @@ app.get("/", (req,res) => {
 
 });
 
-/* HEALTH */
+/* =========================================================
+
+   HEALTH
+
+========================================================= */
 
 app.get(
 
     "/api/health",
 
-    (req,res) => {
+    (req, res) => {
 
         res.json({
 
@@ -238,9 +344,27 @@ app.get(
 
                     GEMINI_MODEL,
 
+                geminiImage:
+
+                    GEMINI_IMAGE_MODEL,
+
                 openrouter:
 
-                    OPENROUTER_MODEL
+                    OPENROUTER_MODEL,
+
+                openrouterImage:
+
+                    OPENROUTER_IMAGE_MODEL,
+
+                pixazoImage:
+
+                    PIXAZO_IMAGE_MODEL,
+
+                elevenlabsImage:
+
+                    ELEVENLABS_IMAGE_MODEL_ID ||
+
+                    null
 
             }
 
@@ -250,11 +374,11 @@ app.get(
 
 );
 
-/* =========================
+/* =========================================================
 
    OPENAI CHAT
 
-========================= */
+========================================================= */
 
 async function openAIChat(
 
@@ -276,19 +400,17 @@ async function openAIChat(
 
     const input = [
 
-        ...cleanHistory(history)
+        ...cleanHistory(history).map(
 
-            .map(item => ({
+            item => ({
 
-                role:
+                role: item.role,
 
-                    item.role,
+                content: item.content
 
-                content:
+            })
 
-                    item.content
-
-            })),
+        ),
 
         {
 
@@ -308,9 +430,7 @@ async function openAIChat(
 
             {
 
-                model:
-
-                    OPENAI_MODEL,
+                model: OPENAI_MODEL,
 
                 instructions:
 
@@ -340,7 +460,11 @@ async function openAIChat(
 
         );
 
-    if (response.data?.output_text) {
+    if (
+
+        response.data?.output_text
+
+    ) {
 
         return response.data.output_text;
 
@@ -366,7 +490,9 @@ async function openAIChat(
 
             if (
 
-                part.type === "output_text"
+                part.type ===
+
+                "output_text"
 
             ) {
 
@@ -394,11 +520,11 @@ async function openAIChat(
 
 }
 
-/* =========================
+/* =========================================================
 
    GEMINI CHAT
 
-========================= */
+========================================================= */
 
 async function geminiChat(
 
@@ -562,11 +688,11 @@ async function geminiChat(
 
 }
 
-/* =========================
+/* =========================================================
 
    OPENROUTER CHAT
 
-========================= */
+========================================================= */
 
 async function openRouterChat(
 
@@ -581,6 +707,16 @@ async function openRouterChat(
         throw new Error(
 
             "OPENROUTER_API_KEY غير موجود"
+
+        );
+
+    }
+
+    if (!OPENROUTER_MODEL) {
+
+        throw new Error(
+
+            "OPENROUTER_MODEL غير مضبوط في Render"
 
         );
 
@@ -676,13 +812,17 @@ async function openRouterChat(
 
 }
 
-/* CHAT ROUTE */
+/* =========================================================
+
+   CHAT
+
+========================================================= */
 
 app.post(
 
     "/api/chat",
 
-    async (req,res) => {
+    async (req, res) => {
 
         try {
 
@@ -716,7 +856,11 @@ app.post(
 
             let answer;
 
-            if (model === "gemini") {
+            if (
+
+                model === "gemini"
+
+            ) {
 
                 answer =
 
@@ -728,7 +872,9 @@ app.post(
 
                     );
 
-            } else if (
+            }
+
+            else if (
 
                 model === "openrouter"
 
@@ -744,7 +890,9 @@ app.post(
 
                     );
 
-            } else {
+            }
+
+            else {
 
                 answer =
 
@@ -778,7 +926,9 @@ app.post(
 
             res.status(
 
-                error?.response?.status || 500
+                error?.response?.status ||
+
+                500
 
             ).json({
 
@@ -794,17 +944,17 @@ app.post(
 
 );
 
-/* =========================
+/* =========================================================
 
    OPENROUTER IMAGE MODELS
 
-========================= */
+========================================================= */
 
 app.get(
 
     "/api/image-models/openrouter",
 
-    async (req,res) => {
+    async (req, res) => {
 
         try {
 
@@ -846,7 +996,9 @@ app.get(
 
                 models:
 
-                    response.data?.data || []
+                    response.data?.data ||
+
+                    []
 
             });
 
@@ -854,7 +1006,7 @@ app.get(
 
             console.error(
 
-                "IMAGE MODELS ERROR",
+                "OPENROUTER IMAGE MODELS ERROR",
 
                 error?.response?.data ||
 
@@ -864,7 +1016,9 @@ app.get(
 
             res.status(
 
-                error?.response?.status || 500
+                error?.response?.status ||
+
+                500
 
             ).json({
 
@@ -880,11 +1034,239 @@ app.get(
 
 );
 
-/* =========================
+/* =========================================================
+
+   ALL IMAGE MODELS
+
+========================================================= */
+
+app.get(
+
+    "/api/image-models",
+
+    async (req, res) => {
+
+        const result = {
+
+            openai: [],
+
+            gemini: [],
+
+            openrouter: [],
+
+            pixazo: [],
+
+            elevenlabs: []
+
+        };
+
+        if (OPENAI_API_KEY) {
+
+            result.openai = [
+
+                {
+
+                    id:
+
+                        "gpt-image-2.5-flare",
+
+                    name:
+
+                        "GPT Image 2.5 Flare"
+
+                },
+
+                {
+
+                    id:
+
+                        "gpt-image-2.5-sunburst",
+
+                    name:
+
+                        "GPT Image 2.5 Sunburst"
+
+                }
+
+            ];
+
+        }
+
+        if (GEMINI_API_KEY) {
+
+            result.gemini = [
+
+                {
+
+                    id:
+
+                        "gemini-3.1-flash-image",
+
+                    name:
+
+                        "Gemini 3.1 Flash Image"
+
+                }
+
+            ];
+
+        }
+
+        if (OPENROUTER_API_KEY) {
+
+            try {
+
+                const response =
+
+                    await axios.get(
+
+                        "https://openrouter.ai/api/v1/images/models",
+
+                        {
+
+                            headers: {
+
+                                Authorization:
+
+                                    `Bearer ${OPENROUTER_API_KEY}`
+
+                            },
+
+                            timeout: 60000
+
+                        }
+
+                    );
+
+                result.openrouter =
+
+                    response.data?.data ||
+
+                    [];
+
+            } catch (error) {
+
+                console.error(
+
+                    "OPENROUTER MODELS ERROR",
+
+                    apiError(error)
+
+                );
+
+            }
+
+        }
+
+        if (PIXAZO_API_KEY) {
+
+            result.pixazo = [
+
+                {
+
+                    id: "flux",
+
+                    name: "FLUX"
+
+                },
+
+                {
+
+                    id: "sdxl",
+
+                    name: "SDXL"
+
+                },
+
+                {
+
+                    id:
+
+                        "gpt-image-2",
+
+                    name:
+
+                        "GPT Image 2"
+
+                },
+
+                {
+
+                    id:
+
+                        "gpt-image-2.5-flare",
+
+                    name:
+
+                        "GPT Image 2.5 Flare"
+
+                },
+
+                {
+
+                    id:
+
+                        "nano-banana-2",
+
+                    name:
+
+                        "Nano Banana 2"
+
+                },
+
+                {
+
+                    id:
+
+                        "qwen-image-3-0-pro",
+
+                    name:
+
+                        "Qwen Image 3 Pro"
+
+                }
+
+            ];
+
+        }
+
+        if (
+
+            ELEVENLABS_API_KEY &&
+
+            ELEVENLABS_IMAGE_MODEL_ID
+
+        ) {
+
+            result.elevenlabs = [
+
+                {
+
+                    id:
+
+                        ELEVENLABS_IMAGE_MODEL_ID,
+
+                    name:
+
+                        ELEVENLABS_IMAGE_MODEL_ID
+
+                }
+
+            ];
+
+        }
+
+        res.json(result);
+
+    }
+
+);
+
+/* =========================================================
 
    OPENAI IMAGE
 
-========================= */
+========================================================= */
 
 async function openAIImage(
 
@@ -938,9 +1320,13 @@ async function openAIImage(
 
                 ),
 
-                4
+                10
 
-            )
+            ),
+
+        output_format:
+
+            "png"
 
     };
 
@@ -988,7 +1374,9 @@ async function openAIImage(
 
     return (
 
-        response.data?.data || []
+        response.data?.data ||
+
+        []
 
     )
 
@@ -1026,11 +1414,11 @@ async function openAIImage(
 
 }
 
-/* =========================
+/* =========================================================
 
    OPENROUTER IMAGE
 
-========================= */
+========================================================= */
 
 async function openRouterImage(
 
@@ -1088,21 +1476,29 @@ async function openRouterImage(
 
                 10
 
-            ),
-
-        aspect_ratio:
-
-            aspect || "1:1",
-
-        resolution:
-
-            resolution || "1K",
-
-        output_format:
-
-            "png"
+            )
 
     };
+
+    if (aspect) {
+
+        body.aspect_ratio =
+
+            aspect;
+
+    }
+
+    if (resolution) {
+
+        body.resolution =
+
+            normalizeResolution(
+
+                resolution
+
+            );
+
+    }
 
     if (
 
@@ -1117,6 +1513,10 @@ async function openRouterImage(
             quality;
 
     }
+
+    body.output_format =
+
+        "png";
 
     const response =
 
@@ -1152,7 +1552,9 @@ async function openRouterImage(
 
     return (
 
-        response.data?.data || []
+        response.data?.data ||
+
+        []
 
     )
 
@@ -1190,11 +1592,11 @@ async function openRouterImage(
 
 }
 
-/* =========================
+/* =========================================================
 
    GEMINI IMAGE
 
-========================= */
+========================================================= */
 
 async function geminiImage(
 
@@ -1222,7 +1624,7 @@ async function geminiImage(
 
         model ||
 
-        "gemini-3.1-flash-image";
+        GEMINI_IMAGE_MODEL;
 
     const response =
 
@@ -1252,11 +1654,17 @@ async function geminiImage(
 
                     aspect_ratio:
 
-                        aspect || "1:1",
+                        aspect ||
+
+                        "1:1",
 
                     image_size:
 
-                        resolution || "1K"
+                        normalizeResolution(
+
+                            resolution
+
+                        )
 
                 }
 
@@ -1282,45 +1690,89 @@ async function geminiImage(
 
         );
 
-    const image =
+    const outputImage =
 
         response.data?.output_image;
 
     if (
 
-        !image ||
-
-        !image.data
+        outputImage?.data
 
     ) {
 
-        throw new Error(
+        return [
 
-            "Gemini لم يرجع صورة"
+            {
 
-        );
+                dataUrl:
+
+                    `data:${outputImage.mime_type || "image/png"};base64,${outputImage.data}`
+
+            }
+
+        ];
 
     }
 
-    return [
+    const stepImages = [];
 
-        {
+    for (
 
-            dataUrl:
+        const step of
 
-                `data:${image.mime_type || "image/png"};base64,${image.data}`
+        response.data?.steps || []
+
+    ) {
+
+        for (
+
+            const content of
+
+            step.content || []
+
+        ) {
+
+            if (
+
+                content.type === "image" &&
+
+                content.data
+
+            ) {
+
+                stepImages.push({
+
+                    dataUrl:
+
+                        `data:${content.mime_type || "image/png"};base64,${content.data}`
+
+                });
+
+            }
 
         }
 
-    ];
+    }
+
+    if (stepImages.length) {
+
+        return stepImages;
+
+    }
+
+    throw new Error(
+
+        "Gemini لم يرجع بيانات الصورة"
+
+    );
 
 }
 
-/* =========================
+/* =========================================================
 
    PIXAZO
 
-========================= */
+========================================================= */
 
 function pixazoModelToEndpoint(
 
@@ -1330,6 +1782,18 @@ function pixazoModelToEndpoint(
 
     const map = {
 
+        "flux":
+
+            "flux/text-to-image",
+
+        "sdxl":
+
+            "sdxl/text-to-image",
+
+        "gpt-image-2":
+
+            "gpt-image-2/v1/text-to-image",
+
         "gpt-image-2.5-flare":
 
             "gpt-image-2-5-flare/v1/text-to-image",
@@ -1338,17 +1802,13 @@ function pixazoModelToEndpoint(
 
             "gpt-image-2-5-sunburst/v1/text-to-image",
 
-        "gpt-image-2":
+        "nano-banana-2":
 
-            "gpt-image-2/v1/text-to-image",
+            "nano-banana-2/v1/text-to-image",
 
         "nano-banana-pro":
 
             "nano-banana-pro/v1/text-to-image",
-
-        "nano-banana-2":
-
-            "nano-banana-2/v1/text-to-image",
 
         "qwen-image-3-0-pro":
 
@@ -1366,14 +1826,6 @@ function pixazoModelToEndpoint(
 
             "reve-image-2-1/v1/text-to-image",
 
-        "flux":
-
-            "flux/text-to-image",
-
-        "sdxl":
-
-            "sdxl/text-to-image",
-
         "z-image":
 
             "z-image/v1/text-to-image"
@@ -1385,54 +1837,6 @@ function pixazoModelToEndpoint(
         map[model] ||
 
         `${model}/v1/text-to-image`
-
-    );
-
-}
-
-function aspectToSize(
-
-    aspect
-
-) {
-
-    const sizes = {
-
-        "1:1":
-
-            "1024x1024",
-
-        "16:9":
-
-            "1536x864",
-
-        "9:16":
-
-            "864x1536",
-
-        "4:3":
-
-            "1536x1152",
-
-        "3:4":
-
-            "1152x1536",
-
-        "3:2":
-
-            "1536x1024",
-
-        "2:3":
-
-            "1024x1536"
-
-    };
-
-    return (
-
-        sizes[aspect] ||
-
-        "1024x1024"
 
     );
 
@@ -1498,13 +1902,17 @@ async function pollPixazo(
 
             String(
 
-                data?.status || ""
+                data?.status ||
+
+                ""
 
             ).toUpperCase();
 
         if (
 
-            status === "COMPLETED"
+            status ===
+
+            "COMPLETED"
 
         ) {
 
@@ -1552,6 +1960,8 @@ async function pollPixazo(
 
                 data?.error ||
 
+                data?.message ||
+
                 "Pixazo فشل في إنشاء الصورة"
 
             );
@@ -1594,21 +2004,19 @@ async function pixazoImage(
 
     }
 
-    if (!model) {
+    const selectedModel =
 
-        throw new Error(
+        model ||
 
-            "اختر نموذج Pixazo"
-
-        );
-
-    }
+        PIXAZO_IMAGE_MODEL;
 
     const endpoint =
 
+        PIXAZO_IMAGE_ENDPOINT ||
+
         pixazoModelToEndpoint(
 
-            model
+            selectedModel
 
         );
 
@@ -1633,18 +2041,6 @@ async function pixazoImage(
             )
 
     };
-
-    /*
-
-       Parameters used by current Pixazo
-
-       model families. Models that don't
-
-       use a field simply ignore/fail it,
-
-       so we keep the core prompt universal.
-
-    */
 
     if (aspect) {
 
@@ -1673,38 +2069,6 @@ async function pixazoImage(
         body.quality =
 
             quality;
-
-    }
-
-    if (
-
-        endpoint.includes(
-
-            "gpt-image"
-
-        )
-
-    ) {
-
-        body.size =
-
-            aspectToSize(
-
-                aspect
-
-            );
-
-        body.quality =
-
-            quality === "auto"
-
-                ? "high"
-
-                : quality;
-
-        body.format =
-
-            "png";
 
     }
 
@@ -1764,11 +2128,7 @@ async function pixazoImage(
 
     }
 
-    if (
-
-        data?.url
-
-    ) {
+    if (data?.url) {
 
         return [
 
@@ -1824,11 +2184,11 @@ async function pixazoImage(
 
 }
 
-/* =========================
+/* =========================================================
 
    ELEVENLABS IMAGE
 
-========================= */
+========================================================= */
 
 async function elevenLabsImage(
 
@@ -1848,11 +2208,17 @@ async function elevenLabsImage(
 
     }
 
-    if (!model) {
+    const imageModel =
+
+        model ||
+
+        ELEVENLABS_IMAGE_MODEL_ID;
+
+    if (!imageModel) {
 
         throw new Error(
 
-            "اختر نموذج ElevenLabs"
+            "ELEVENLABS_IMAGE_MODEL_ID غير مضبوط"
 
         );
 
@@ -1868,7 +2234,7 @@ async function elevenLabsImage(
 
                 model_id:
 
-                    model,
+                    imageModel,
 
                 prompt
 
@@ -1900,7 +2266,9 @@ async function elevenLabsImage(
 
     if (
 
-        job?.status === "completed" &&
+        job?.status ===
+
+            "completed" &&
 
         (
 
@@ -1928,137 +2296,35 @@ async function elevenLabsImage(
 
     }
 
-    if (!job?.id) {
+    if (job?.id) {
 
         throw new Error(
 
-            "ElevenLabs لم يرجع Job ID"
+            `ElevenLabs أنشأ المهمة بنجاح، لكن الصورة ما زالت قيد المعالجة. Job ID: ${job.id}`
 
         );
-
-    }
-
-    for (
-
-        let i = 0;
-
-        i < 90;
-
-        i++
-
-    ) {
-
-        await new Promise(
-
-            resolve =>
-
-                setTimeout(
-
-                    resolve,
-
-                    3000
-
-                )
-
-        );
-
-        const result =
-
-            await axios.get(
-
-                `https://api.elevenlabs.io/v1/flows/image/${encodeURIComponent(
-
-                    job.id
-
-                )}`,
-
-                {
-
-                    headers: {
-
-                        "xi-api-key":
-
-                            ELEVENLABS_API_KEY
-
-                    },
-
-                    timeout: 60000
-
-                }
-
-            );
-
-        const data =
-
-            result.data;
-
-        if (
-
-            data?.status === "completed"
-
-        ) {
-
-            const url =
-
-                data?.output?.url ||
-
-                data?.url ||
-
-                data?.output?.media_url;
-
-            if (url) {
-
-                return [
-
-                    {
-
-                        url
-
-                    }
-
-                ];
-
-            }
-
-        }
-
-        if (
-
-            data?.status === "failed"
-
-        ) {
-
-            throw new Error(
-
-                data?.error ||
-
-                "ElevenLabs image generation failed"
-
-            );
-
-        }
 
     }
 
     throw new Error(
 
-        "انتهت مهلة ElevenLabs"
+        "ElevenLabs لم يرجع نتيجة صورة"
 
     );
 
 }
 
-/* =========================
+/* =========================================================
 
    IMAGE ROUTE
 
-========================= */
+========================================================= */
 
 app.post(
 
     "/api/image",
 
-    async (req,res) => {
+    async (req, res) => {
 
         try {
 
@@ -2084,7 +2350,9 @@ app.post(
 
                 !prompt ||
 
-                typeof prompt !== "string"
+                typeof prompt !==
+
+                    "string"
 
             ) {
 
@@ -2116,7 +2384,7 @@ app.post(
 
                         model,
 
-                        aspectToSize(
+                        aspectToOpenAISize(
 
                             aspect_ratio
 
@@ -2128,7 +2396,9 @@ app.post(
 
                     );
 
-            } else if (
+            }
+
+            else if (
 
                 provider ===
 
@@ -2154,7 +2424,9 @@ app.post(
 
                     );
 
-            } else if (
+            }
+
+            else if (
 
                 provider ===
 
@@ -2176,7 +2448,9 @@ app.post(
 
                     );
 
-            } else if (
+            }
+
+            else if (
 
                 provider ===
 
@@ -2194,7 +2468,15 @@ app.post(
 
                     );
 
-            } else {
+            }
+
+            else if (
+
+                provider ===
+
+                "pixazo"
+
+            ) {
 
                 images =
 
@@ -2213,6 +2495,16 @@ app.post(
                         n
 
                     );
+
+            }
+
+            else {
+
+                throw new Error(
+
+                    "مزود الصور غير معروف"
+
+                );
 
             }
 
@@ -2252,7 +2544,9 @@ app.post(
 
             res.status(
 
-                error?.response?.status || 500
+                error?.response?.status ||
+
+                500
 
             ).json({
 
@@ -2268,17 +2562,17 @@ app.post(
 
 );
 
-/* =========================
+/* =========================================================
 
    ELEVENLABS TTS
 
-========================= */
+========================================================= */
 
 app.post(
 
     "/api/voice",
 
-    async (req,res) => {
+    async (req, res) => {
 
         try {
 
@@ -2396,7 +2690,9 @@ app.post(
 
             res.status(
 
-                error?.response?.status || 500
+                error?.response?.status ||
+
+                500
 
             ).json({
 
@@ -2412,11 +2708,11 @@ app.post(
 
 );
 
-/* =========================
+/* =========================================================
 
    FILE ANALYSIS
 
-========================= */
+========================================================= */
 
 app.post(
 
@@ -2424,7 +2720,7 @@ app.post(
 
     upload.single("file"),
 
-    async (req,res) => {
+    async (req, res) => {
 
         let filePath;
 
@@ -2522,7 +2818,11 @@ ${content.slice(
 
             let answer;
 
-            if (OPENAI_API_KEY) {
+            if (
+
+                OPENAI_API_KEY
+
+            ) {
 
                 answer =
 
@@ -2534,7 +2834,9 @@ ${content.slice(
 
                     );
 
-            } else if (
+            }
+
+            else if (
 
                 GEMINI_API_KEY
 
@@ -2550,7 +2852,9 @@ ${content.slice(
 
                     );
 
-            } else if (
+            }
+
+            else if (
 
                 OPENROUTER_API_KEY
 
@@ -2566,7 +2870,9 @@ ${content.slice(
 
                     );
 
-            } else {
+            }
+
+            else {
 
                 throw new Error(
 
@@ -2596,7 +2902,9 @@ ${content.slice(
 
             res.status(
 
-                error?.response?.status || 500
+                error?.response?.status ||
+
+                500
 
             ).json({
 
@@ -2634,11 +2942,15 @@ ${content.slice(
 
 );
 
-/* 404 */
+/* =========================================================
+
+   404
+
+========================================================= */
 
 app.use(
 
-    (req,res) => {
+    (req, res) => {
 
         res.status(404).json({
 
@@ -2656,17 +2968,73 @@ app.use(
 
 );
 
-/* START */
+/* =========================================================
+
+   START
+
+========================================================= */
 
 app.listen(
 
     PORT,
+
+    "0.0.0.0",
 
     () => {
 
         console.log(
 
             `ALWAFER AI running on port ${PORT}`
+
+        );
+
+        console.log(
+
+            "OpenAI:",
+
+            Boolean(OPENAI_API_KEY)
+
+        );
+
+        console.log(
+
+            "Gemini:",
+
+            Boolean(GEMINI_API_KEY),
+
+            GEMINI_MODEL
+
+        );
+
+        console.log(
+
+            "OpenRouter:",
+
+            Boolean(
+
+                OPENROUTER_API_KEY
+
+            )
+
+        );
+
+        console.log(
+
+            "Pixazo:",
+
+            Boolean(PIXAZO_API_KEY)
+
+        );
+
+        console.log(
+
+            "ElevenLabs:",
+
+            Boolean(
+
+                ELEVENLABS_API_KEY
+
+            )
 
         );
 
