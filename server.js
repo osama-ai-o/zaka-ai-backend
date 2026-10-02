@@ -1,14 +1,14 @@
-require('dotenv').config();
+require("dotenv").config();
 
-const express = require('express');
+const express = require("express");
 
-const cors = require('cors');
+const cors = require("cors");
 
-const axios = require('axios');
+const axios = require("axios");
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-const googleTTS = require('google-tts-api');
+const googleTTS = require("google-tts-api");
 
 const app = express();
 
@@ -16,784 +16,648 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: "4mb" }));
 
-// الصفحة الرئيسية
+/* =========================
 
-app.get('/', (req, res) => {
+   BASIC
 
-    res.send('🚀 خادم الويفر AI يعمل بنجاح!');
+========================= */
 
-});
+app.get("/", (req, res) => {
 
-// فحص السيرفر والمفاتيح
+  res.json({
 
-app.get('/api/health', (req, res) => {
+    ok: true,
 
-    res.json({
+    name: "ALWAFER AI",
 
-        ok: true,
+    message: "🚀 خادم الويفر AI يعمل بنجاح"
 
-        server: 'zaka-ai',
-
-        gemini: !!process.env.GEMINI_API_KEY,
-
-        openrouter: !!process.env.OPENROUTER_API_KEY
-
-    });
+  });
 
 });
 
-// Gemini
+app.get("/api/health", (req, res) => {
+
+  res.json({
+
+    ok: true,
+
+    server: "zaka-ai",
+
+    providers: {
+
+      gemini: Boolean(process.env.GEMINI_API_KEY),
+
+      openrouter: Boolean(process.env.OPENROUTER_API_KEY)
+
+    }
+
+  });
+
+});
+
+/* =========================
+
+   HELPERS
+
+========================= */
+
+function normalizeMessages(messages) {
+
+  if (!Array.isArray(messages)) {
+
+    return [];
+
+  }
+
+  return messages
+
+    .filter(
+
+      (msg) =>
+
+        msg &&
+
+        typeof msg.content !== "undefined" &&
+
+        String(msg.content).trim()
+
+    )
+
+    .map((msg) => ({
+
+      role: msg.role === "assistant" ? "assistant" : "user",
+
+      content: String(msg.content)
+
+    }));
+
+}
+
+function safeError(res, status, message) {
+
+  return res.status(status).json({
+
+    ok: false,
+
+    error: message
+
+  });
+
+}
+
+/* =========================
+
+   GEMINI
+
+========================= */
 
 async function askGemini(messages) {
 
-    if (!process.env.GEMINI_API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
 
-        throw new Error(
+    throw new Error("GEMINI_API_KEY غير موجود");
 
-            'GEMINI_API_KEY غير موجود في Render'
+  }
 
-        );
+  const genAI = new GoogleGenerativeAI(
 
-    }
+    process.env.GEMINI_API_KEY
 
-    const genAI = new GoogleGenerativeAI(
+  );
 
-        process.env.GEMINI_API_KEY
+  const modelName =
 
-    );
+    process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
-    const modelName =
+  const model = genAI.getGenerativeModel({
 
-        process.env.GEMINI_MODEL ||
+    model: modelName
 
-        'gemini-3.8-flash';
+  });
 
-    const generativeModel =
+  const cleanMessages = normalizeMessages(messages);
 
-        genAI.getGenerativeModel({
+  if (!cleanMessages.length) {
 
-            model: modelName
+    throw new Error("لا توجد رسائل");
 
-        });
+  }
 
-    const history = [];
+  const history = cleanMessages
 
-    for (
+    .slice(0, -1)
 
-        let i = 0;
+    .map((msg) => ({
 
-        i < messages.length - 1;
+      role: msg.role === "assistant" ? "model" : "user",
 
-        i++
+      parts: [
 
-    ) {
+        {
 
-        const msg = messages[i];
+          text: msg.content
 
-        if (!msg || !msg.content) continue;
+        }
 
-        history.push({
+      ]
 
-            role:
+    }));
 
-                msg.role === 'assistant'
+  const lastMessage =
 
-                    ? 'model'
+    cleanMessages[cleanMessages.length - 1].content;
 
-                    : 'user',
+  const chat = model.startChat({
 
-            parts: [
+    history
 
-                {
+  });
 
-                    text: String(msg.content)
+  const result = await chat.sendMessage(lastMessage);
 
-                }
-
-            ]
-
-        });
-
-    }
-
-    const lastMessage =
-
-        messages[messages.length - 1]?.content || '';
-
-    const chat =
-
-        generativeModel.startChat({
-
-            history
-
-        });
-
-    const result =
-
-        await chat.sendMessage(
-
-            String(lastMessage)
-
-        );
-
-    const response =
-
-        await result.response;
-
-    return response.text();
+  return result.response.text();
 
 }
 
-// OpenRouter
+/* =========================
+
+   OPENROUTER
+
+========================= */
 
 async function askOpenRouter(messages) {
 
-    if (!process.env.OPENROUTER_API_KEY) {
+  if (!process.env.OPENROUTER_API_KEY) {
 
-        throw new Error(
+    throw new Error("OPENROUTER_API_KEY غير موجود");
 
-            'OPENROUTER_API_KEY غير موجود في Render'
+  }
 
-        );
+  const cleanMessages = normalizeMessages(messages);
 
-    }
+  const response = await axios.post(
 
-    const response =
+    "https://openrouter.ai/api/v1/chat/completions",
 
-        await axios.post(
+    {
 
-            'https://openrouter.ai/api/v1/chat/completions',
+      model:
 
-            {
+        process.env.OPENROUTER_MODEL ||
 
-                model: 'openrouter/free',
+        "openrouter/free",
 
-                messages: messages.map(msg => ({
+      messages: cleanMessages,
 
-                    role:
+      temperature: 0.7
 
-                        msg.role === 'assistant'
+    },
 
-                            ? 'assistant'
+    {
 
-                            : 'user',
+      headers: {
 
-                    content:
+        Authorization:
 
-                        String(msg.content || '')
+          `Bearer ${process.env.OPENROUTER_API_KEY}`,
 
-                }))
+        "Content-Type": "application/json",
 
-            },
+        "HTTP-Referer":
 
-            {
+          "https://zaka-ai-backend-1.onrender.com",
 
-                headers: {
+        "X-Title": "ALWAFER AI"
 
-                    Authorization:
+      },
 
-                        `Bearer ${process.env.OPENROUTER_API_KEY}`,
-
-                    'Content-Type':
-
-                        'application/json',
-
-                    'HTTP-Referer':
-
-                        'https://zaka-ai-backend-1.onrender.com',
-
-                    'X-Title':
-
-                        'Alwafer AI'
-
-                },
-
-                timeout: 60000
-
-            }
-
-        );
-
-    const reply =
-
-        response.data?.choices?.[0]?.message?.content;
-
-    if (!reply) {
-
-        throw new Error(
-
-            'OpenRouter لم يرجع نصًا صالحًا'
-
-        );
+      timeout: 60000
 
     }
 
-    return reply;
+  );
+
+  const reply =
+
+    response.data?.choices?.[0]?.message?.content;
+
+  if (!reply) {
+
+    throw new Error(
+
+      "OpenRouter لم يرجع استجابة نصية"
+
+    );
+
+  }
+
+  return reply;
 
 }
 
-// المحادثة
+/* =========================
 
-app.post('/api/chat', async (req, res) => {
+   CHAT
 
-    try {
+========================= */
 
-        const {
+app.post("/api/chat", async (req, res) => {
 
-            provider,
-
-            model,
-
-            messages
-
-        } = req.body;
-
-        if (
-
-            !Array.isArray(messages) ||
-
-            messages.length === 0
-
-        ) {
-
-            return res.status(400).json({
-
-                error: 'الرسائل غير موجودة'
-
-            });
-
-        }
-
-        console.log('💬 Chat request:', {
-
-            provider,
-
-            model,
-
-            messages: messages.length
-
-        });
-
-        // Gemini
-
-        if (
-
-            provider === 'gemini' ||
-
-            String(model || '').includes('gemini')
-
-        ) {
-
-            try {
-
-                const reply =
-
-                    await askGemini(messages);
-
-                console.log(
-
-                    '✅ Gemini response'
-
-                );
-
-                return res.json({
-
-                    reply,
-
-                    provider: 'gemini',
-
-                    model:
-
-                        process.env.GEMINI_MODEL ||
-
-                        'gemini-3.8-flash'
-
-                });
-
-            } catch (geminiError) {
-
-                const geminiStatus =
-
-                    geminiError?.status ||
-
-                    geminiError?.response?.status ||
-
-                    geminiError?.code;
-
-                const geminiMessage =
-
-                    geminiError?.message ||
-
-                    'Gemini error';
-
-                console.error(
-
-                    '❌ Gemini ERROR:',
-
-                    geminiMessage
-
-                );
-
-                const isQuotaError =
-
-                    geminiStatus === 429 ||
-
-                    geminiMessage.includes('429') ||
-
-                    geminiMessage
-
-                        .toLowerCase()
-
-                        .includes('quota') ||
-
-                    geminiMessage
-
-                        .toLowerCase()
-
-                        .includes(
-
-                            'resource_exhausted'
-
-                        );
-
-                // إذا انتهت حصة Gemini
-
-                // استخدم OpenRouter تلقائيًا
-
-                if (isQuotaError) {
-
-                    console.log(
-
-                        '⚠️ Gemini quota exceeded → switching to OpenRouter'
-
-                    );
-
-                    try {
-
-                        const reply =
-
-                            await askOpenRouter(
-
-                                messages
-
-                            );
-
-                        console.log(
-
-                            '✅ OpenRouter fallback response'
-
-                        );
-
-                        return res.json({
-
-                            reply,
-
-                            provider:
-
-                                'openrouter',
-
-                            model:
-
-                                'openrouter/free',
-
-                            fallback: true
-
-                        });
-
-                    } catch (
-
-                        openRouterError
-
-                    ) {
-
-                        console.error(
-
-                            '❌ OpenRouter fallback ERROR:',
-
-                            openRouterError
-
-                                ?.response
-
-                                ?.data ||
-
-                            openRouterError
-
-                                ?.message
-
-                        );
-
-                        return res.status(503).json({
-
-                            error:
-
-                                'انتهت حصة Gemini، وOpenRouter لم يتمكن من الرد.',
-
-                            geminiError:
-
-                                geminiMessage,
-
-                            openRouterError:
-
-                                openRouterError
-
-                                    ?.response
-
-                                    ?.data ||
-
-                                openRouterError
-
-                                    ?.message
-
-                        });
-
-                    }
-
-                }
-
-                return res.status(500).json({
-
-                    error:
-
-                        'حدث خطأ في Gemini',
-
-                    details:
-
-                        geminiMessage
-
-                });
-
-            }
-
-        }
-
-        // OpenRouter مباشرة
-
-        try {
-
-            const reply =
-
-                await askOpenRouter(
-
-                    messages
-
-                );
-
-            console.log(
-
-                '✅ OpenRouter response'
-
-            );
-
-            return res.json({
-
-                reply,
-
-                provider:
-
-                    'openrouter',
-
-                model:
-
-                    'openrouter/free'
-
-            });
-
-        } catch (
-
-            openRouterError
-
-        ) {
-
-            console.error(
-
-                '❌ OpenRouter ERROR:',
-
-                openRouterError
-
-                    ?.response
-
-                    ?.data ||
-
-                openRouterError
-
-                    ?.message
-
-            );
-
-            return res.status(500).json({
-
-                error:
-
-                    'حدث خطأ في OpenRouter',
-
-                details:
-
-                    openRouterError
-
-                        ?.response
-
-                        ?.data ||
-
-                    openRouterError
-
-                        ?.message
-
-            });
-
-        }
-
-    } catch (error) {
-
-        console.error(
-
-            '❌ CHAT ERROR:',
-
-            error?.response?.data ||
-
-            error?.message
-
-        );
-
-        return res.status(500).json({
-
-            error:
-
-                'حدث خطأ أثناء الاتصال بالسيرفر',
-
-            details:
-
-                error?.response?.data ||
-
-                error?.message
-
-        });
-
-    }
-
-});
-
-// توليد الصور
-
-app.post('/api/image', async (req, res) => {
+  try {
 
     const {
 
-        prompt,
+      provider = "openrouter",
 
-        width = 512,
-
-        height = 512
+      messages
 
     } = req.body;
 
+    const cleanMessages =
+
+      normalizeMessages(messages);
+
+    if (!cleanMessages.length) {
+
+      return safeError(
+
+        res,
+
+        400,
+
+        "لم يتم إرسال رسالة"
+
+      );
+
+    }
+
+    let reply;
+
     if (
 
-        !prompt ||
+      provider === "gemini" ||
 
-        !String(prompt).trim()
+      provider.includes("gemini")
 
     ) {
 
-        return res.status(400).json({
+      try {
 
-            error:
+        reply = await askGemini(cleanMessages);
 
-                'وصف الصورة فارغ'
+      } catch (error) {
 
-        });
+        const status =
 
-    }
+          error?.response?.status;
 
-    try {
+        const message =
 
-        const encodedPrompt =
+          String(error?.message || "").toLowerCase();
 
-            encodeURIComponent(
+        const shouldFallback =
 
-                String(prompt)
+          status === 429 ||
+
+          message.includes("quota") ||
+
+          message.includes("resource exhausted") ||
+
+          message.includes("rate");
+
+        if (
+
+          shouldFallback &&
+
+          process.env.OPENROUTER_API_KEY
+
+        ) {
+
+          console.log(
+
+            "⚠️ Gemini غير متاح، التحويل إلى OpenRouter..."
+
+          );
+
+          reply =
+
+            await askOpenRouter(
+
+              cleanMessages
 
             );
 
-        const imageUrl =
+        } else {
 
-            `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true`;
+          throw error;
 
-        await axios.get(
+        }
 
-            imageUrl,
+      }
 
-            {
+    } else {
 
-                timeout: 60000
+      reply =
 
-            }
+        await askOpenRouter(
 
-        );
-
-        return res.json({
-
-            imageUrl
-
-        });
-
-    } catch (error) {
-
-        console.error(
-
-            '❌ IMAGE ERROR:',
-
-            error?.response?.data ||
-
-            error?.message
+          cleanMessages
 
         );
-
-        return res.status(500).json({
-
-            error:
-
-                'فشل توليد الصورة، حاول بوصف مختلف.'
-
-        });
 
     }
 
+    return res.json({
+
+      ok: true,
+
+      reply
+
+    });
+
+  } catch (error) {
+
+    console.error(
+
+      "CHAT ERROR:",
+
+      error?.response?.data ||
+
+        error?.message ||
+
+        error
+
+    );
+
+    return safeError(
+
+      res,
+
+      500,
+
+      "حدث خطأ أثناء الاتصال بالذكاء الاصطناعي"
+
+    );
+
+  }
+
 });
 
-// الصوت
+/* =========================
 
-app.post('/api/voice', async (req, res) => {
+   IMAGE GENERATION
+
+========================= */
+
+app.post("/api/image", async (req, res) => {
+
+  try {
+
+    const {
+
+      prompt,
+
+      width = 512,
+
+      height = 512
+
+    } = req.body;
+
+    if (!prompt) {
+
+      return safeError(
+
+        res,
+
+        400,
+
+        "أدخل وصف الصورة أولاً"
+
+      );
+
+    }
+
+    const safeWidth =
+
+      Math.min(
+
+        Math.max(Number(width) || 512, 256),
+
+        1536
+
+      );
+
+    const safeHeight =
+
+      Math.min(
+
+        Math.max(Number(height) || 512, 256),
+
+        1536
+
+      );
+
+    const encodedPrompt =
+
+      encodeURIComponent(
+
+        String(prompt)
+
+      );
+
+    const imageUrl =
+
+      `https://image.pollinations.ai/prompt/${encodedPrompt}` +
+
+      `?width=${safeWidth}` +
+
+      `&height=${safeHeight}` +
+
+      `&nologo=true`;
+
+    return res.json({
+
+      ok: true,
+
+      imageUrl
+
+    });
+
+  } catch (error) {
+
+    console.error(
+
+      "IMAGE ERROR:",
+
+      error?.message || error
+
+    );
+
+    return safeError(
+
+      res,
+
+      500,
+
+      "تعذر إنشاء الصورة"
+
+    );
+
+  }
+
+});
+
+/* =========================
+
+   TEXT TO SPEECH
+
+========================= */
+
+app.post("/api/voice", async (req, res) => {
+
+  try {
 
     const { text } = req.body;
 
-    if (
+    if (!text) {
 
-        !text ||
+      return safeError(
 
-        !String(text).trim()
+        res,
 
-    ) {
+        400,
 
-        return res.status(400).json({
+        "لا يوجد نص لتحويله إلى صوت"
 
-            error:
-
-                'النص فارغ'
-
-        });
+      );
 
     }
 
-    try {
+    const audioUrl =
 
-        const url =
+      googleTTS.getAudioUrl(
 
-            googleTTS.getAudioUrl(
+        String(text),
 
-                String(text),
+        {
 
-                {
+          lang: "ar",
 
-                    lang: 'ar',
+          slow: false,
 
-                    slow: false,
+          host:
 
-                    host:
+            "https://translate.google.com"
 
-                        'https://translate.google.com'
+        }
 
-                }
+      );
 
-            );
+    const audioResponse =
 
-        const audioResponse =
+      await axios.get(
 
-            await axios.get(
+        audioUrl,
 
-                url,
+        {
 
-                {
+          responseType: "arraybuffer",
 
-                    responseType:
+          timeout: 30000
 
-                        'arraybuffer',
+        }
 
-                    timeout: 30000
+      );
 
-                }
+    res.set({
 
-            );
+      "Content-Type":
 
-        res.set(
+        "audio/mpeg",
 
-            'Content-Type',
+      "Content-Length":
 
-            'audio/mpeg'
+        audioResponse.data.length,
 
-        );
+      "Cache-Control":
 
-        return res.send(
+        "no-store"
 
-            audioResponse.data
+    });
 
-        );
+    return res.send(
 
-    } catch (error) {
+      Buffer.from(
 
-        console.error(
+        audioResponse.data
 
-            '❌ VOICE ERROR:',
+      )
 
-            error?.message
+    );
 
-        );
+  } catch (error) {
 
-        return res.status(500).json({
+    console.error(
 
-            error:
+      "VOICE ERROR:",
 
-                'فشل توليد الصوت.'
+      error?.message || error
 
-        });
+    );
 
-    }
+    return safeError(
+
+      res,
+
+      500,
+
+      "تعذر إنشاء الصوت"
+
+    );
+
+  }
 
 });
 
-// تشغيل السيرفر
+/* =========================
+
+   SERVER
+
+========================= */
 
 app.listen(PORT, () => {
 
-    console.log(
+  console.log(
 
-        `🚀 Server running on port ${PORT}`
+    `🚀 ALWAFER AI running on port ${PORT}`
 
-    );
+  );
 
-    console.log(
+  console.log(
 
-        'Gemini:',
+    "Gemini:",
 
-        process.env.GEMINI_API_KEY
+    process.env.GEMINI_API_KEY
 
-            ? 'Configured'
+      ? "configured"
 
-            : 'Missing'
+      : "missing"
 
-    );
+  );
 
-    console.log(
+  console.log(
 
-        'OpenRouter:',
+    "OpenRouter:",
 
-        process.env.OPENROUTER_API_KEY
+    process.env.OPENROUTER_API_KEY
 
-            ? 'Configured'
+      ? "configured"
 
-            : 'Missing'
+      : "missing"
 
-    );
+  );
 
 });
