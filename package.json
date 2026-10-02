@@ -1,7 +1,7 @@
 {
   "name": "zaka-ai-backend",
-  "version": "5.0.0",
-  "description": "ALWAFER AI Backend",
+  "version": "8.0.0",
+  "description": "ALWAFER AI Multi Provider Backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -10,9 +10,9 @@
     "node": ">=20"
   },
   "dependencies": {
-    "axios": "^1.7.9",
+    "axios": "^1.12.2",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
+    "dotenv": "^17.2.2",
     "express": "^5.1.0",
     "multer": "^2.0.2"
   }
