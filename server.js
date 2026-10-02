@@ -1,1617 +1,1663 @@
-require("dotenv").config();
-
 const express = require("express");
 
 const cors = require("cors");
 
 const axios = require("axios");
 
+const dotenv = require("dotenv");
+
 const multer = require("multer");
+
+const fs = require("fs");
+
+const path = require("path");
+
+dotenv.config();
 
 const app = express();
 
-const PORT = process.env.PORT || 3000;
+const PORT =
 
-app.use(cors());
+    process.env.PORT || 10000;
 
-app.use(express.json({ limit: "20mb" }));
+const FRONTEND_URL =
 
-const upload = multer({
+    process.env.FRONTEND_URL || "*";
 
-  storage: multer.memoryStorage(),
+/* =========================
 
-  limits: {
+   MIDDLEWARE
 
-    fileSize: 15 * 1024 * 1024
+========================= */
 
-  }
+app.use(
 
-});
+    cors({
 
-/* =========================================================
+        origin: FRONTEND_URL === "*"
 
-   CONFIG
+            ? "*"
 
-========================================================= */
+            : FRONTEND_URL
 
-const CONFIG = {
+    })
 
-  geminiModel:
+);
 
-    process.env.GEMINI_MODEL || "gemini-3.8-flash",
+app.use(
 
-  openaiModel:
+    express.json({
 
-    process.env.OPENAI_MODEL || "gpt-6-luna",
+        limit: "10mb"
 
-  openrouterModel:
+    })
 
-    process.env.OPENROUTER_MODEL || "openrouter/free",
+);
 
-  elevenModel:
+app.use(
 
-    process.env.ELEVENLABS_MODEL ||
+    express.urlencoded({
 
-    "eleven_multilingual_v2",
+        extended: true,
 
-  elevenVoice:
+        limit: "10mb"
 
-    process.env.ELEVENLABS_VOICE_ID || "",
+    })
 
-  systemPrompt:
+);
 
-    process.env.ALWAFER_SYSTEM_PROMPT ||
+/* =========================
 
-    `
+   UPLOADS
 
-أنت الويفر AI - ALWAFER AI.
+========================= */
 
-أنت مساعد ذكاء اصطناعي عربي احترافي ومتعدد الاستخدامات.
+const uploadDir =
 
-أجب باللغة التي يستخدمها المستخدم، وإذا تحدث بالعربية فأجب بالعربية.
+    path.join(
 
-كن دقيقًا وواضحًا ومنظمًا.
+        __dirname,
 
-في البرمجة أعط حلولًا عملية وكودًا صحيحًا.
-
-لا تدّعي تنفيذ شيء لم تنفذه فعليًا.
-
-إذا كانت المعلومة غير مؤكدة فاذكر ذلك بوضوح.
-
-`
-
-};
-
-/* =========================================================
-
-   HELPERS
-
-========================================================= */
-
-function cleanMessages(messages) {
-
-  if (!Array.isArray(messages)) return [];
-
-  return messages
-
-    .filter(
-
-      (m) =>
-
-        m &&
-
-        typeof m.content !== "undefined" &&
-
-        String(m.content).trim()
-
-    )
-
-    .map((m) => ({
-
-      role:
-
-        m.role === "assistant"
-
-          ? "assistant"
-
-          : "user",
-
-      content: String(m.content)
-
-    }));
-
-}
-
-function errorResponse(res, status, message) {
-
-  return res.status(status).json({
-
-    ok: false,
-
-    error: message
-
-  });
-
-}
-
-function getErrorMessage(error) {
-
-  return (
-
-    error?.response?.data?.error?.message ||
-
-    error?.response?.data?.error ||
-
-    error?.message ||
-
-    "Unknown error"
-
-  );
-
-}
-
-/* =========================================================
-
-   HEALTH
-
-========================================================= */
-
-app.get("/", (req, res) => {
-
-  res.json({
-
-    ok: true,
-
-    name: "ALWAFER AI",
-
-    version: "4.0.0",
-
-    message: "🚀 الويفر AI يعمل بنجاح"
-
-  });
-
-});
-
-app.get("/api/health", (req, res) => {
-
-  res.json({
-
-    ok: true,
-
-    name: "ALWAFER AI",
-
-    version: "4.0.0",
-
-    providers: {
-
-      gemini: Boolean(
-
-        process.env.GEMINI_API_KEY
-
-      ),
-
-      openai: Boolean(
-
-        process.env.OPENAI_API_KEY
-
-      ),
-
-      openrouter: Boolean(
-
-        process.env.OPENROUTER_API_KEY
-
-      ),
-
-      elevenlabs: Boolean(
-
-        process.env.ELEVENLABS_API_KEY
-
-      ),
-
-      pixazo: Boolean(
-
-        process.env.PIXAZO_API_KEY
-
-      )
-
-    },
-
-    models: {
-
-      gemini: CONFIG.geminiModel,
-
-      openai: CONFIG.openaiModel,
-
-      openrouter:
-
-        CONFIG.openrouterModel
-
-    }
-
-  });
-
-});
-
-/* =========================================================
-
-   GEMINI
-
-========================================================= */
-
-async function askGemini(messages) {
-
-  if (!process.env.GEMINI_API_KEY) {
-
-    throw new Error(
-
-      "GEMINI_API_KEY غير موجود"
+        "uploads"
 
     );
 
-  }
+if (!fs.existsSync(uploadDir)) {
 
-  const clean = cleanMessages(messages);
+    fs.mkdirSync(
 
-  if (!clean.length) {
+        uploadDir,
 
-    throw new Error("لا توجد رسائل");
+        { recursive: true }
 
-  }
+    );
 
-  const contents = [
+}
 
-    {
+const upload =
 
-      role: "user",
+    multer({
 
-      parts: [
+        dest: uploadDir,
 
-        {
+        limits: {
 
-          text:
+            fileSize:
 
-            CONFIG.systemPrompt
-
-        }
-
-      ]
-
-    }
-
-  ];
-
-  for (const message of clean) {
-
-    contents.push({
-
-      role:
-
-        message.role === "assistant"
-
-          ? "model"
-
-          : "user",
-
-      parts: [
-
-        {
-
-          text: message.content
+                10 * 1024 * 1024
 
         }
-
-      ]
 
     });
 
-  }
+/* =========================
 
-  const response = await axios.post(
+   CONFIG
 
-    `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.geminiModel}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+========================= */
 
-    {
+const OPENAI_API_KEY =
 
-      contents
+    process.env.OPENAI_API_KEY;
 
-    },
+const GEMINI_API_KEY =
 
-    {
+    process.env.GEMINI_API_KEY;
 
-      headers: {
+const OPENROUTER_API_KEY =
 
-        "Content-Type":
+    process.env.OPENROUTER_API_KEY;
 
-          "application/json"
+const POLLINATIONS_API_KEY =
 
-      },
+    process.env.POLLINATIONS_API_KEY;
 
-      timeout: 90000
+const ELEVENLABS_API_KEY =
+
+    process.env.ELEVENLABS_API_KEY;
+
+const ELEVENLABS_VOICE_ID =
+
+    process.env.ELEVENLABS_VOICE_ID;
+
+/* =========================
+
+   MODELS
+
+========================= */
+
+const OPENAI_MODEL =
+
+    process.env.OPENAI_MODEL ||
+
+    "gpt-5";
+
+const GEMINI_MODEL =
+
+    process.env.GEMINI_MODEL ||
+
+    "gemini-3.8-flash";
+
+const OPENROUTER_MODEL =
+
+    process.env.OPENROUTER_MODEL ||
+
+    "openai/gpt-5.4";
+
+/* =========================
+
+   HELPERS
+
+========================= */
+
+function cleanHistory(history) {
+
+    if (!Array.isArray(history)) {
+
+        return [];
 
     }
 
-  );
+    return history
 
-  const parts =
+        .slice(-20)
 
-    response.data
+        .filter(item =>
 
-      ?.candidates?.[0]
+            item &&
 
-      ?.content?.parts || [];
-
-  const text = parts
-
-    .map((part) => part.text || "")
-
-    .join("")
-
-    .trim();
-
-  if (!text) {
-
-    throw new Error(
-
-      "Gemini لم يرجع نصًا"
-
-    );
-
-  }
-
-  return text;
-
-}
-
-/* =========================================================
-
-   OPENAI
-
-========================================================= */
-
-async function askOpenAI(messages) {
-
-  if (!process.env.OPENAI_API_KEY) {
-
-    throw new Error(
-
-      "OPENAI_API_KEY غير موجود"
-
-    );
-
-  }
-
-  const clean = cleanMessages(messages);
-
-  const input = [
-
-    {
-
-      role: "developer",
-
-      content: CONFIG.systemPrompt
-
-    },
-
-    ...clean.map((message) => ({
-
-      role: message.role,
-
-      content: [
-
-        {
-
-          type:
-
-            message.role === "user"
-
-              ? "input_text"
-
-              : "output_text",
-
-          text: message.content
-
-        }
-
-      ]
-
-    }))
-
-  ];
-
-  const response = await axios.post(
-
-    "https://api.openai.com/v1/responses",
-
-    {
-
-      model: CONFIG.openaiModel,
-
-      input
-
-    },
-
-    {
-
-      headers: {
-
-        Authorization:
-
-          `Bearer ${process.env.OPENAI_API_KEY}`,
-
-        "Content-Type":
-
-          "application/json"
-
-      },
-
-      timeout: 90000
-
-    }
-
-  );
-
-  if (response.data?.output_text) {
-
-    return response.data.output_text;
-
-  }
-
-  let text = "";
-
-  for (
-
-    const item of
-
-    response.data?.output || []
-
-  ) {
-
-    for (
-
-      const content of
-
-      item.content || []
-
-    ) {
-
-      if (
-
-        content.type ===
-
-        "output_text"
-
-      ) {
-
-        text +=
-
-          content.text || "";
-
-      }
-
-    }
-
-  }
-
-  if (!text.trim()) {
-
-    throw new Error(
-
-      "OpenAI لم يرجع نصًا"
-
-    );
-
-  }
-
-  return text.trim();
-
-}
-
-/* =========================================================
-
-   OPENROUTER
-
-========================================================= */
-
-async function askOpenRouter(messages) {
-
-  if (!process.env.OPENROUTER_API_KEY) {
-
-    throw new Error(
-
-      "OPENROUTER_API_KEY غير موجود"
-
-    );
-
-  }
-
-  const clean = cleanMessages(messages);
-
-  const response = await axios.post(
-
-    "https://openrouter.ai/api/v1/chat/completions",
-
-    {
-
-      model:
-
-        CONFIG.openrouterModel,
-
-      messages: [
-
-        {
-
-          role: "system",
-
-          content:
-
-            CONFIG.systemPrompt
-
-        },
-
-        ...clean
-
-      ]
-
-    },
-
-    {
-
-      headers: {
-
-        Authorization:
-
-          `Bearer ${process.env.OPENROUTER_API_KEY}`,
-
-        "Content-Type":
-
-          "application/json",
-
-        "HTTP-Referer":
-
-          "https://zaka-ai-backend-1.onrender.com",
-
-        "X-Title":
-
-          "ALWAFER AI"
-
-      },
-
-      timeout: 90000
-
-    }
-
-  );
-
-  const reply =
-
-    response.data
-
-      ?.choices?.[0]
-
-      ?.message?.content;
-
-  if (!reply) {
-
-    throw new Error(
-
-      "OpenRouter لم يرجع نصًا"
-
-    );
-
-  }
-
-  return String(reply);
-
-}
-
-/* =========================================================
-
-   CHAT
-
-========================================================= */
-
-app.post(
-
-  "/api/chat",
-
-  async (req, res) => {
-
-    try {
-
-      const {
-
-        provider = "openrouter",
-
-        messages
-
-      } = req.body || {};
-
-      const clean =
-
-        cleanMessages(messages);
-
-      if (!clean.length) {
-
-        return errorResponse(
-
-          res,
-
-          400,
-
-          "أرسل رسالة أولاً"
-
-        );
-
-      }
-
-      let reply = null;
-
-      let usedProvider = provider;
-
-      if (provider === "openai") {
-
-        try {
-
-          reply =
-
-            await askOpenAI(clean);
-
-        } catch (error) {
-
-          console.error(
-
-            "OpenAI:",
-
-            getErrorMessage(error)
-
-          );
-
-          if (
-
-            process.env.GEMINI_API_KEY
-
-          ) {
-
-            usedProvider = "gemini";
-
-            reply =
-
-              await askGemini(clean);
-
-          } else if (
-
-            process.env
-
-              .OPENROUTER_API_KEY
-
-          ) {
-
-            usedProvider =
-
-              "openrouter";
-
-            reply =
-
-              await askOpenRouter(
-
-                clean
-
-              );
-
-          } else {
-
-            throw error;
-
-          }
-
-        }
-
-      }
-
-      else if (provider === "gemini") {
-
-        try {
-
-          reply =
-
-            await askGemini(clean);
-
-        } catch (error) {
-
-          console.error(
-
-            "Gemini:",
-
-            getErrorMessage(error)
-
-          );
-
-          if (
-
-            process.env.OPENAI_API_KEY
-
-          ) {
-
-            usedProvider = "openai";
-
-            reply =
-
-              await askOpenAI(clean);
-
-          } else if (
-
-            process.env
-
-              .OPENROUTER_API_KEY
-
-          ) {
-
-            usedProvider =
-
-              "openrouter";
-
-            reply =
-
-              await askOpenRouter(
-
-                clean
-
-              );
-
-          } else {
-
-            throw error;
-
-          }
-
-        }
-
-      }
-
-      else {
-
-        try {
-
-          reply =
-
-            await askOpenRouter(
-
-              clean
-
-            );
-
-        } catch (error) {
-
-          console.error(
-
-            "OpenRouter:",
-
-            getErrorMessage(error)
-
-          );
-
-          if (
-
-            process.env.GEMINI_API_KEY
-
-          ) {
-
-            usedProvider = "gemini";
-
-            reply =
-
-              await askGemini(clean);
-
-          } else if (
-
-            process.env.OPENAI_API_KEY
-
-          ) {
-
-            usedProvider = "openai";
-
-            reply =
-
-              await askOpenAI(clean);
-
-          } else {
-
-            throw error;
-
-          }
-
-        }
-
-      }
-
-      return res.json({
-
-        ok: true,
-
-        reply: String(reply),
-
-        provider: usedProvider
-
-      });
-
-    } catch (error) {
-
-      console.error(
-
-        "CHAT ERROR:",
-
-        getErrorMessage(error)
-
-      );
-
-      return errorResponse(
-
-        res,
-
-        500,
-
-        "حدث خطأ أثناء الاتصال بالذكاء الاصطناعي"
-
-      );
-
-    }
-
-  }
-
-);
-
-/* =========================================================
-
-   FILE ANALYSIS
-
-========================================================= */
-
-app.post(
-
-  "/api/analyze-file",
-
-  upload.single("file"),
-
-  async (req, res) => {
-
-    try {
-
-      if (!req.file) {
-
-        return errorResponse(
-
-          res,
-
-          400,
-
-          "لم يتم إرسال ملف"
-
-        );
-
-      }
-
-      if (!process.env.GEMINI_API_KEY) {
-
-        return errorResponse(
-
-          res,
-
-          500,
-
-          "تحليل الملفات يحتاج GEMINI_API_KEY"
-
-        );
-
-      }
-
-      const question =
-
-        String(
-
-          req.body?.question ||
-
-          "حلل الملف واستخرج أهم المعلومات منه واشرحها بالعربية بشكل واضح ومنظم."
-
-        );
-
-      const mime =
-
-        req.file.mimetype ||
-
-        "application/octet-stream";
-
-      const isText =
-
-        mime === "text/plain" ||
-
-        mime === "text/csv" ||
-
-        mime === "application/json";
-
-      let contents;
-
-      if (isText) {
-
-        const text =
-
-          req.file.buffer.toString(
-
-            "utf8"
-
-          );
-
-        contents = [
-
-          {
-
-            role: "user",
-
-            parts: [
-
-              {
-
-                text:
-
-                  CONFIG.systemPrompt
-
-              },
-
-              {
-
-                text:
-
-                  `الملف المرفوع اسمه: ${req.file.originalname}\n\n` +
-
-                  `السؤال:\n${question}\n\n` +
-
-                  `محتوى الملف:\n${text}`
-
-              }
-
-            ]
-
-          }
-
-        ];
-
-      }
-
-      else {
-
-        const base64 =
-
-          req.file.buffer.toString(
-
-            "base64"
-
-          );
-
-        contents = [
-
-          {
-
-            role: "user",
-
-            parts: [
-
-              {
-
-                text:
-
-                  CONFIG.systemPrompt
-
-              },
-
-              {
-
-                text:
-
-                  `حلل الملف التالي.\n\nالسؤال:\n${question}`
-
-              },
-
-              {
-
-                inline_data: {
-
-                  mime_type: mime,
-
-                  data: base64
-
-                }
-
-              }
-
-            ]
-
-          }
-
-        ];
-
-      }
-
-      const response =
-
-        await axios.post(
-
-          `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.geminiModel}:generateContent?key=${process.env.GEMINI_API_KEY}`,
-
-          {
-
-            contents
-
-          },
-
-          {
-
-            headers: {
-
-              "Content-Type":
-
-                "application/json"
-
-            },
-
-            timeout: 120000
-
-          }
-
-        );
-
-      const parts =
-
-        response.data
-
-          ?.candidates?.[0]
-
-          ?.content?.parts || [];
-
-      const reply = parts
-
-        .map(
-
-          (part) =>
-
-            part.text || ""
+            typeof item.content === "string"
 
         )
 
-        .join("")
+        .map(item => ({
 
-        .trim();
+            role:
 
-      if (!reply) {
+                item.role === "assistant"
 
-        throw new Error(
+                    ? "assistant"
 
-          "لم يرجع Gemini نتيجة لتحليل الملف"
+                    : "user",
 
-        );
+            content:
 
-      }
+                item.content
 
-      return res.json({
-
-        ok: true,
-
-        file: req.file.originalname,
-
-        reply
-
-      });
-
-    } catch (error) {
-
-      console.error(
-
-        "FILE ERROR:",
-
-        getErrorMessage(error)
-
-      );
-
-      return errorResponse(
-
-        res,
-
-        500,
-
-        "تعذر تحليل الملف"
-
-      );
-
-    }
-
-  }
-
-);
-
-/* =========================================================
-
-   IMAGE
-
-========================================================= */
-
-app.post(
-
-  "/api/image",
-
-  async (req, res) => {
-
-    try {
-
-      const {
-
-        prompt,
-
-        model = "flux",
-
-        width = 512,
-
-        height = 512
-
-      } = req.body || {};
-
-      if (!prompt?.trim()) {
-
-        return errorResponse(
-
-          res,
-
-          400,
-
-          "أدخل وصف الصورة"
-
-        );
-
-      }
-
-      const safeWidth = Math.min(
-
-        Math.max(
-
-          Number(width) || 512,
-
-          256
-
-        ),
-
-        1536
-
-      );
-
-      const safeHeight = Math.min(
-
-        Math.max(
-
-          Number(height) || 512,
-
-          256
-
-        ),
-
-        1536
-
-      );
-
-      /*
-
-        Pollinations الحالي يدعم اختيار
-
-        نموذج الصورة عبر model.
-
-      */
-
-      const imageModel =
-
-        model === "sdxl"
-
-          ? "black-forest-labs/flux.1-schnell"
-
-          : "flux";
-
-      const encodedPrompt =
-
-        encodeURIComponent(
-
-          String(prompt)
-
-        );
-
-      const imageUrl =
-
-        "https://gen.pollinations.ai/image/" +
-
-        encodedPrompt +
-
-        `?model=${encodeURIComponent(
-
-          imageModel
-
-        )}` +
-
-        `&width=${safeWidth}` +
-
-        `&height=${safeHeight}`;
-
-      return res.json({
-
-        ok: true,
-
-        imageUrl,
-
-        model: imageModel
-
-      });
-
-    } catch (error) {
-
-      console.error(
-
-        "IMAGE ERROR:",
-
-        getErrorMessage(error)
-
-      );
-
-      return errorResponse(
-
-        res,
-
-        500,
-
-        "تعذر إنشاء الصورة"
-
-      );
-
-    }
-
-  }
-
-);
-
-/* =========================================================
-
-   ELEVENLABS
-
-========================================================= */
-
-async function elevenLabsVoice(text) {
-
-  if (!process.env.ELEVENLABS_API_KEY) {
-
-    throw new Error(
-
-      "ELEVENLABS_API_KEY غير موجود"
-
-    );
-
-  }
-
-  if (!CONFIG.elevenVoice) {
-
-    throw new Error(
-
-      "ELEVENLABS_VOICE_ID غير موجود"
-
-    );
-
-  }
-
-  const response =
-
-    await axios.post(
-
-      `https://api.elevenlabs.io/v1/text-to-speech/${CONFIG.elevenVoice}`,
-
-      {
-
-        text: String(text),
-
-        model_id:
-
-          CONFIG.elevenModel,
-
-        output_format:
-
-          "mp3_44100_128"
-
-      },
-
-      {
-
-        headers: {
-
-          "xi-api-key":
-
-            process.env.ELEVENLABS_API_KEY,
-
-          "Content-Type":
-
-            "application/json",
-
-          Accept:
-
-            "audio/mpeg"
-
-        },
-
-        responseType:
-
-          "arraybuffer",
-
-        timeout: 90000
-
-      }
-
-    );
-
-  return Buffer.from(
-
-    response.data
-
-  );
+        }));
 
 }
 
-/* =========================================================
+function buildPrompt(message, history) {
 
-   VOICE
+    const previous =
 
-========================================================= */
+        cleanHistory(history);
 
-app.post(
+    let prompt = "";
 
-  "/api/voice",
+    if (previous.length) {
 
-  async (req, res) => {
+        prompt +=
 
-    try {
+            "سياق المحادثة السابقة:\n\n";
 
-      const text =
+        previous.forEach(item => {
 
-        String(
+            prompt +=
 
-          req.body?.text || ""
+                `${item.role}: ${item.content}\n\n`;
 
-        ).trim();
-
-      if (!text) {
-
-        return errorResponse(
-
-          res,
-
-          400,
-
-          "لا يوجد نص صوتي"
-
-        );
-
-      }
-
-      if (
-
-        process.env.ELEVENLABS_API_KEY &&
-
-        CONFIG.elevenVoice
-
-      ) {
-
-        try {
-
-          const audio =
-
-            await elevenLabsVoice(
-
-              text
-
-            );
-
-          res.set({
-
-            "Content-Type":
-
-              "audio/mpeg",
-
-            "Content-Length":
-
-              audio.length,
-
-            "Cache-Control":
-
-              "no-store"
-
-          });
-
-          return res.send(audio);
-
-        } catch (error) {
-
-          console.error(
-
-            "ElevenLabs:",
-
-            getErrorMessage(error)
-
-          );
-
-        }
-
-      }
-
-      const googleTTS =
-
-        require("google-tts-api");
-
-      const audioUrl =
-
-        googleTTS.getAudioUrl(
-
-          text,
-
-          {
-
-            lang: "ar",
-
-            slow: false,
-
-            host:
-
-              "https://translate.google.com"
-
-          }
-
-        );
-
-      const audioResponse =
-
-        await axios.get(
-
-          audioUrl,
-
-          {
-
-            responseType:
-
-              "arraybuffer",
-
-            timeout: 30000
-
-          }
-
-        );
-
-      const audio =
-
-        Buffer.from(
-
-          audioResponse.data
-
-        );
-
-      res.set({
-
-        "Content-Type":
-
-          "audio/mpeg",
-
-        "Content-Length":
-
-          audio.length,
-
-        "Cache-Control":
-
-          "no-store"
-
-      });
-
-      return res.send(audio);
-
-    } catch (error) {
-
-      console.error(
-
-        "VOICE ERROR:",
-
-        getErrorMessage(error)
-
-      );
-
-      return errorResponse(
-
-        res,
-
-        500,
-
-        "تعذر إنشاء الصوت"
-
-      );
+        });
 
     }
 
-  }
+    prompt +=
+
+        `رسالة المستخدم الحالية:\n${message}`;
+
+    return prompt;
+
+}
+
+/* =========================
+
+   OPENAI
+
+========================= */
+
+async function askOpenAI(
+
+    message,
+
+    history
+
+) {
+
+    if (!OPENAI_API_KEY) {
+
+        throw new Error(
+
+            "OPENAI_API_KEY غير موجود في Render."
+
+        );
+
+    }
+
+    const input =
+
+        buildPrompt(
+
+            message,
+
+            history
+
+        );
+
+    const response =
+
+        await axios.post(
+
+            "https://api.openai.com/v1/responses",
+
+            {
+
+                model: OPENAI_MODEL,
+
+                instructions:
+
+                    "أنت الويفر AI. أجب بالعربية عند استخدام العربية. كن دقيقًا ومفيدًا ومنظمًا.",
+
+                input
+
+            },
+
+            {
+
+                headers: {
+
+                    Authorization:
+
+                        `Bearer ${OPENAI_API_KEY}`,
+
+                    "Content-Type":
+
+                        "application/json"
+
+                },
+
+                timeout: 120000
+
+            }
+
+        );
+
+    const data =
+
+        response.data;
+
+    if (
+
+        typeof data.output_text ===
+
+        "string"
+
+    ) {
+
+        return data.output_text;
+
+    }
+
+    const output =
+
+        Array.isArray(data.output)
+
+            ? data.output
+
+            : [];
+
+    const text =
+
+        output
+
+            .flatMap(item =>
+
+                Array.isArray(item.content)
+
+                    ? item.content
+
+                    : []
+
+            )
+
+            .map(item =>
+
+                item.text || ""
+
+            )
+
+            .join("\n")
+
+            .trim();
+
+    return (
+
+        text ||
+
+        "لم يصل نص من OpenAI."
+
+    );
+
+}
+
+/* =========================
+
+   GEMINI
+
+========================= */
+
+async function askGemini(
+
+    message,
+
+    history
+
+) {
+
+    if (!GEMINI_API_KEY) {
+
+        throw new Error(
+
+            "GEMINI_API_KEY غير موجود في Render."
+
+        );
+
+    }
+
+    const previous =
+
+        cleanHistory(history);
+
+    const contents = [];
+
+    previous.forEach(item => {
+
+        contents.push({
+
+            role:
+
+                item.role === "assistant"
+
+                    ? "model"
+
+                    : "user",
+
+            parts: [
+
+                {
+
+                    text:
+
+                        item.content
+
+                }
+
+            ]
+
+        });
+
+    });
+
+    contents.push({
+
+        role: "user",
+
+        parts: [
+
+            {
+
+                text: message
+
+            }
+
+        ]
+
+    });
+
+    const url =
+
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`;
+
+    const response =
+
+        await axios.post(
+
+            url,
+
+            {
+
+                systemInstruction: {
+
+                    parts: [
+
+                        {
+
+                            text:
+
+                                "أنت الويفر AI. أجب بالعربية عند استخدام العربية. كن دقيقًا ومفيدًا ومنظمًا."
+
+                        }
+
+                    ]
+
+                },
+
+                contents,
+
+                generationConfig: {
+
+                    temperature: 0.7,
+
+                    maxOutputTokens: 4096
+
+                }
+
+            },
+
+            {
+
+                headers: {
+
+                    "x-goog-api-key":
+
+                        GEMINI_API_KEY,
+
+                    "Content-Type":
+
+                        "application/json"
+
+                },
+
+                timeout: 120000
+
+            }
+
+        );
+
+    const candidates =
+
+        response.data &&
+
+        response.data.candidates;
+
+    if (!Array.isArray(candidates)) {
+
+        return "لم يصل رد من Gemini.";
+
+    }
+
+    const text =
+
+        candidates
+
+            .flatMap(candidate =>
+
+                candidate.content &&
+
+                Array.isArray(
+
+                    candidate.content.parts
+
+                )
+
+                    ? candidate.content.parts
+
+                    : []
+
+            )
+
+            .map(part =>
+
+                part.text || ""
+
+            )
+
+            .join("\n")
+
+            .trim();
+
+    return (
+
+        text ||
+
+        "لم يصل نص من Gemini."
+
+    );
+
+}
+
+/* =========================
+
+   OPENROUTER
+
+========================= */
+
+async function askOpenRouter(
+
+    message,
+
+    history
+
+) {
+
+    if (!OPENROUTER_API_KEY) {
+
+        throw new Error(
+
+            "OPENROUTER_API_KEY غير موجود في Render."
+
+        );
+
+    }
+
+    const messages = [
+
+        {
+
+            role: "system",
+
+            content:
+
+                "أنت الويفر AI. أجب بالعربية عند استخدام العربية. كن دقيقًا ومفيدًا ومنظمًا."
+
+        }
+
+    ];
+
+    cleanHistory(history)
+
+        .forEach(item => {
+
+            messages.push({
+
+                role:
+
+                    item.role === "assistant"
+
+                        ? "assistant"
+
+                        : "user",
+
+                content:
+
+                    item.content
+
+            });
+
+        });
+
+    messages.push({
+
+        role: "user",
+
+        content: message
+
+    });
+
+    const response =
+
+        await axios.post(
+
+            "https://openrouter.ai/api/v1/chat/completions",
+
+            {
+
+                model:
+
+                    OPENROUTER_MODEL,
+
+                messages,
+
+                temperature: 0.7,
+
+                max_tokens: 4096
+
+            },
+
+            {
+
+                headers: {
+
+                    Authorization:
+
+                        `Bearer ${OPENROUTER_API_KEY}`,
+
+                    "Content-Type":
+
+                        "application/json",
+
+                    "HTTP-Referer":
+
+                        process.env.SITE_URL ||
+
+                        "https://zaka-ai-backend-1.onrender.com",
+
+                    "X-OpenRouter-Title":
+
+                        "ALWAFER AI"
+
+                },
+
+                timeout: 120000
+
+            }
+
+        );
+
+    return (
+
+        response.data &&
+
+        response.data.choices &&
+
+        response.data.choices[0] &&
+
+        response.data.choices[0].message &&
+
+        response.data.choices[0].message.content
+
+    ) || "لم يصل رد من OpenRouter.";
+
+}
+
+/* =========================
+
+   HEALTH
+
+========================= */
+
+app.get(
+
+    "/api/health",
+
+    (req, res) => {
+
+        res.json({
+
+            ok: true,
+
+            service:
+
+                "ALWAFER AI Backend",
+
+            version:
+
+                "5.0.0",
+
+            models: {
+
+                openai:
+
+                    Boolean(
+
+                        OPENAI_API_KEY
+
+                    ),
+
+                gemini:
+
+                    Boolean(
+
+                        GEMINI_API_KEY
+
+                    ),
+
+                openrouter:
+
+                    Boolean(
+
+                        OPENROUTER_API_KEY
+
+                    )
+
+            },
+
+            image:
+
+                Boolean(
+
+                    POLLINATIONS_API_KEY
+
+                ),
+
+            voice:
+
+                Boolean(
+
+                    ELEVENLABS_API_KEY
+
+                )
+
+        });
+
+    }
 
 );
 
-/* =========================================================
+/* =========================
+
+   ROOT
+
+========================= */
+
+app.get(
+
+    "/",
+
+    (req, res) => {
+
+        res.json({
+
+            name: "ALWAFER AI",
+
+            status: "online",
+
+            version: "5.0.0"
+
+        });
+
+    }
+
+);
+
+/* =========================
+
+   CHAT
+
+========================= */
+
+app.post(
+
+    "/api/chat",
+
+    async (req, res) => {
+
+        try {
+
+            const {
+
+                message,
+
+                model,
+
+                history
+
+            } = req.body;
+
+            if (
+
+                !message ||
+
+                typeof message !== "string"
+
+            ) {
+
+                return res.status(400).json({
+
+                    error:
+
+                        "الرسالة مطلوبة."
+
+                });
+
+            }
+
+            let reply;
+
+            const selectedModel =
+
+                model || "openai";
+
+            if (
+
+                selectedModel ===
+
+                "openai"
+
+            ) {
+
+                reply =
+
+                    await askOpenAI(
+
+                        message,
+
+                        history
+
+                    );
+
+            } else if (
+
+                selectedModel ===
+
+                "gemini"
+
+            ) {
+
+                reply =
+
+                    await askGemini(
+
+                        message,
+
+                        history
+
+                    );
+
+            } else if (
+
+                selectedModel ===
+
+                "openrouter"
+
+            ) {
+
+                reply =
+
+                    await askOpenRouter(
+
+                        message,
+
+                        history
+
+                    );
+
+            } else {
+
+                return res.status(400).json({
+
+                    error:
+
+                        "النموذج غير معروف."
+
+                });
+
+            }
+
+            res.json({
+
+                ok: true,
+
+                model: selectedModel,
+
+                reply
+
+            });
+
+        } catch (error) {
+
+            console.error(
+
+                "CHAT ERROR:",
+
+                error.response?.data ||
+
+                error.message
+
+            );
+
+            const apiError =
+
+                error.response?.data;
+
+            res.status(500).json({
+
+                ok: false,
+
+                error:
+
+                    apiError?.error?.message ||
+
+                    apiError?.message ||
+
+                    error.message ||
+
+                    "حدث خطأ في الخادم."
+
+            });
+
+        }
+
+    }
+
+);
+
+/* =========================
+
+   IMAGE
+
+========================= */
+
+app.post(
+
+    "/api/image",
+
+    async (req, res) => {
+
+        try {
+
+            const {
+
+                prompt,
+
+                model,
+
+                size
+
+            } = req.body;
+
+            if (
+
+                !prompt ||
+
+                typeof prompt !== "string"
+
+            ) {
+
+                return res.status(400).json({
+
+                    error:
+
+                        "وصف الصورة مطلوب."
+
+                });
+
+            }
+
+            const selectedModel =
+
+                model || "flux";
+
+            const encodedPrompt =
+
+                encodeURIComponent(
+
+                    prompt
+
+                );
+
+            const params =
+
+                new URLSearchParams();
+
+            params.set(
+
+                "model",
+
+                selectedModel
+
+            );
+
+            if (size === "portrait") {
+
+                params.set(
+
+                    "width",
+
+                    "768"
+
+                );
+
+                params.set(
+
+                    "height",
+
+                    "1365"
+
+                );
+
+            } else if (
+
+                size === "landscape"
+
+            ) {
+
+                params.set(
+
+                    "width",
+
+                    "1365"
+
+                );
+
+                params.set(
+
+                    "height",
+
+                    "768"
+
+                );
+
+            } else {
+
+                params.set(
+
+                    "width",
+
+                    "1024"
+
+                );
+
+                params.set(
+
+                    "height",
+
+                    "1024"
+
+                );
+
+            }
+
+            if (POLLINATIONS_API_KEY) {
+
+                params.set(
+
+                    "key",
+
+                    POLLINATIONS_API_KEY
+
+                );
+
+            }
+
+            const imageUrl =
+
+                `https://gen.pollinations.ai/image/${encodedPrompt}?${params.toString()}`;
+
+            res.json({
+
+                ok: true,
+
+                image: imageUrl
+
+            });
+
+        } catch (error) {
+
+            console.error(
+
+                "IMAGE ERROR:",
+
+                error.message
+
+            );
+
+            res.status(500).json({
+
+                error:
+
+                    "تعذر إنشاء رابط الصورة."
+
+            });
+
+        }
+
+    }
+
+);
+
+/* =========================
+
+   FILE ANALYSIS
+
+========================= */
+
+app.post(
+
+    "/api/analyze-file",
+
+    upload.single("file"),
+
+    async (req, res) => {
+
+        let filePath = null;
+
+        try {
+
+            if (!req.file) {
+
+                return res.status(400).json({
+
+                    error:
+
+                        "لم يتم إرسال ملف."
+
+                });
+
+            }
+
+            filePath =
+
+                req.file.path;
+
+            const originalName =
+
+                req.file.originalname;
+
+            const extension =
+
+                path.extname(
+
+                    originalName
+
+                ).toLowerCase();
+
+            const supportedText =
+
+                [
+
+                    ".txt",
+
+                    ".md",
+
+                    ".json",
+
+                    ".js",
+
+                    ".html",
+
+                    ".css",
+
+                    ".csv",
+
+                    ".xml"
+
+                ];
+
+            if (
+
+                supportedText.includes(
+
+                    extension
+
+                )
+
+            ) {
+
+                const content =
+
+                    fs.readFileSync(
+
+                        filePath,
+
+                        "utf8"
+
+                    );
+
+                const limited =
+
+                    content.slice(
+
+                        0,
+
+                        50000
+
+                    );
+
+                let analysis;
+
+                if (GEMINI_API_KEY) {
+
+                    analysis =
+
+                        await askGemini(
+
+                            `حلل هذا الملف "${originalName}" واشرح محتواه ووظيفته وأهم الملاحظات:\n\n${limited}`,
+
+                            []
+
+                        );
+
+                } else if (
+
+                    OPENAI_API_KEY
+
+                ) {
+
+                    analysis =
+
+                        await askOpenAI(
+
+                            `حلل هذا الملف "${originalName}" واشرح محتواه ووظيفته وأهم الملاحظات:\n\n${limited}`,
+
+                            []
+
+                        );
+
+                } else {
+
+                    analysis =
+
+                        `تم استلام الملف ${originalName}.\n\n${limited}`;
+
+                }
+
+                return res.json({
+
+                    ok: true,
+
+                    filename:
+
+                        originalName,
+
+                    analysis
+
+                });
+
+            }
+
+            if (extension === ".pdf") {
+
+                return res.json({
+
+                    ok: true,
+
+                    filename:
+
+                        originalName,
+
+                    analysis:
+
+                        "تم استلام ملف PDF. لإجراء تحليل نصي كامل للـPDF أضف محلل PDF إلى المشروع."
+
+                });
+
+            }
+
+            return res.json({
+
+                ok: true,
+
+                filename:
+
+                    originalName,
+
+                analysis:
+
+                    `تم استلام الملف ${originalName}. نوع الملف الحالي لا يدعم استخراج النص تلقائيًا في هذه النسخة.`
+
+            });
+
+        } catch (error) {
+
+            console.error(
+
+                "FILE ERROR:",
+
+                error.response?.data ||
+
+                error.message
+
+            );
+
+            res.status(500).json({
+
+                error:
+
+                    error.response?.data?.error?.message ||
+
+                    error.message ||
+
+                    "تعذر تحليل الملف."
+
+            });
+
+        } finally {
+
+            if (
+
+                filePath &&
+
+                fs.existsSync(filePath)
+
+            ) {
+
+                try {
+
+                    fs.unlinkSync(filePath);
+
+                } catch {}
+
+            }
+
+        }
+
+    }
+
+);
+
+/* =========================
+
+   VOICE
+
+========================= */
+
+app.post(
+
+    "/api/voice",
+
+    async (req, res) => {
+
+        try {
+
+            const {
+
+                text
+
+            } = req.body;
+
+            if (
+
+                !text ||
+
+                typeof text !== "string"
+
+            ) {
+
+                return res.status(400).json({
+
+                    error:
+
+                        "النص مطلوب."
+
+                });
+
+            }
+
+            /* ElevenLabs */
+
+            if (
+
+                ELEVENLABS_API_KEY &&
+
+                ELEVENLABS_VOICE_ID
+
+            ) {
+
+                const response =
+
+                    await axios.post(
+
+                        `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(ELEVENLABS_VOICE_ID)}`,
+
+                        {
+
+                            text,
+
+                            model_id:
+
+                                "eleven_multilingual_v2",
+
+                            language_code:
+
+                                "ar"
+
+                        },
+
+                        {
+
+                            headers: {
+
+                                "xi-api-key":
+
+                                    ELEVENLABS_API_KEY,
+
+                                "Content-Type":
+
+                                    "application/json",
+
+                                Accept:
+
+                                    "audio/mpeg"
+
+                            },
+
+                            responseType:
+
+                                "arraybuffer",
+
+                            timeout: 120000
+
+                        }
+
+                    );
+
+                res.set(
+
+                    "Content-Type",
+
+                    "audio/mpeg"
+
+                );
+
+                return res.send(
+
+                    response.data
+
+                );
+
+            }
+
+            /* Google TTS */
+
+            const googleTtsUrl =
+
+                "https://translate.google.com/translate_tts";
+
+            const response =
+
+                await axios.get(
+
+                    googleTtsUrl,
+
+                    {
+
+                        params: {
+
+                            ie: "UTF-8",
+
+                            q:
+
+                                text.slice(
+
+                                    0,
+
+                                    200
+
+                                ),
+
+                            tl: "ar",
+
+                            client: "tw-ob"
+
+                        },
+
+                        responseType:
+
+                            "arraybuffer",
+
+                        headers: {
+
+                            "User-Agent":
+
+                                "Mozilla/5.0"
+
+                        }
+
+                    }
+
+                );
+
+            res.set(
+
+                "Content-Type",
+
+                "audio/mpeg"
+
+            );
+
+            return res.send(
+
+                response.data
+
+            );
+
+        } catch (error) {
+
+            console.error(
+
+                "VOICE ERROR:",
+
+                error.response?.data ||
+
+                error.message
+
+            );
+
+            res.status(500).json({
+
+                error:
+
+                    "تعذر إنشاء الصوت."
+
+            });
+
+        }
+
+    }
+
+);
+
+/* =========================
+
+   404
+
+========================= */
+
+app.use(
+
+    (req, res) => {
+
+        res.status(404).json({
+
+            error:
+
+                "المسار غير موجود."
+
+        });
+
+    }
+
+);
+
+/* =========================
+
+   ERROR
+
+========================= */
+
+app.use(
+
+    (error, req, res, next) => {
+
+        console.error(
+
+            "SERVER ERROR:",
+
+            error
+
+        );
+
+        res.status(500).json({
+
+            error:
+
+                "حدث خطأ داخلي في الخادم."
+
+        });
+
+    }
+
+);
+
+/* =========================
 
    START
 
-========================================================= */
+========================= */
 
 app.listen(
 
-  PORT,
+    PORT,
 
-  () => {
+    () => {
 
-    console.log(
+        console.log(
 
-      `🚀 ALWAFER AI 4.0 running on port ${PORT}`
+            `ALWAFER AI Backend running on port ${PORT}`
 
-    );
+        );
 
-    console.log(
+        console.log(
 
-      "Gemini:",
+            `OpenAI: ${Boolean(OPENAI_API_KEY)}`
 
-      process.env.GEMINI_API_KEY
+        );
 
-        ? "ON"
+        console.log(
 
-        : "OFF"
+            `Gemini: ${Boolean(GEMINI_API_KEY)}`
 
-    );
+        );
 
-    console.log(
+        console.log(
 
-      "OpenAI:",
+            `OpenRouter: ${Boolean(OPENROUTER_API_KEY)}`
 
-      process.env.OPENAI_API_KEY
+        );
 
-        ? "ON"
+        console.log(
 
-        : "OFF"
+            `Pollinations: ${Boolean(POLLINATIONS_API_KEY)}`
 
-    );
+        );
 
-    console.log(
+        console.log(
 
-      "OpenRouter:",
+            `ElevenLabs: ${Boolean(ELEVENLABS_API_KEY)}`
 
-      process.env.OPENROUTER_API_KEY
+        );
 
-        ? "ON"
-
-        : "OFF"
-
-    );
-
-    console.log(
-
-      "ElevenLabs:",
-
-      process.env.ELEVENLABS_API_KEY
-
-        ? "ON"
-
-        : "OFF"
-
-    );
-
-    console.log(
-
-      "Pixazo:",
-
-      process.env.PIXAZO_API_KEY
-
-        ? "ON"
-
-        : "OFF"
-
-    );
-
-  }
+    }
 
 );
